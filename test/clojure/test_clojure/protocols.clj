@@ -11,6 +11,7 @@
 (ns clojure.test-clojure.protocols
   (:use clojure.test clojure.test-clojure.protocols.examples)
   (:require [clojure.test-clojure.protocols.more-examples :as other]
+            [clojure.set :as set]
             clojure.test-clojure.helpers)
   (:import [clojure.test_clojure.protocols.examples ExampleInterface]))
 
@@ -55,7 +56,7 @@
   (testing "protocol fns throw IllegalArgumentException if no impl matches"
     (is (thrown-with-msg?
           IllegalArgumentException
-          #"No implementation of method: :foo of protocol: #'clojure.test-clojure.protocols.examples/ExampleProtocol found for class: java.lang.Integer"
+          #"No implementation of method: :foo of protocol: #'clojure.test-clojure.protocols.examples/ExampleProtocol found for class: java.lang.Long"
           (foo 10))))
   (testing "protocols generate a corresponding interface using _ instead of - for method names"
     (is (= ["bar" "baz" "baz" "foo" "with_quux"] (method-names clojure.test_clojure.protocols.examples.ExampleProtocol))))
@@ -174,21 +175,21 @@
 (defrecord DefrecordObjectMethodsWidgetA [a])
 (defrecord DefrecordObjectMethodsWidgetB [a])
 (deftest defrecord-object-methods-test
-  (testing ".equals depends on fields and type"
-    (is (true? (.equals (DefrecordObjectMethodsWidgetA. 1) (DefrecordObjectMethodsWidgetA. 1))))
-    (is (false? (.equals (DefrecordObjectMethodsWidgetA. 1) (DefrecordObjectMethodsWidgetA. 2))))
-    (is (false? (.equals (DefrecordObjectMethodsWidgetA. 1) (DefrecordObjectMethodsWidgetB. 1)))))
-  (testing ".hashCode depends on fields and type"
-    (is (= (.hashCode (DefrecordObjectMethodsWidgetA. 1)) (.hashCode (DefrecordObjectMethodsWidgetA. 1))))
-    (is (= (.hashCode (DefrecordObjectMethodsWidgetA. 2)) (.hashCode (DefrecordObjectMethodsWidgetA. 2))))
-    (is (not= (.hashCode (DefrecordObjectMethodsWidgetA. 1)) (.hashCode (DefrecordObjectMethodsWidgetA. 2))))
-    (is (= (.hashCode (DefrecordObjectMethodsWidgetB. 1)) (.hashCode (DefrecordObjectMethodsWidgetB. 1))))
-    (is (not= (.hashCode (DefrecordObjectMethodsWidgetA. 1)) (.hashCode (DefrecordObjectMethodsWidgetB. 1))))))
+  (testing "= depends on fields and type"
+    (is (true? (= (DefrecordObjectMethodsWidgetA. 1) (DefrecordObjectMethodsWidgetA. 1))))
+    (is (false? (= (DefrecordObjectMethodsWidgetA. 1) (DefrecordObjectMethodsWidgetA. 2))))
+    (is (false? (= (DefrecordObjectMethodsWidgetA. 1) (DefrecordObjectMethodsWidgetB. 1))))))
 
 (deftest defrecord-acts-like-a-map
   (let [rec (r 1 2)]
-    (is (= (r 1 3 {} {:c 4}) (merge rec {:b 3 :c 4})))
-    (is (= {:a 11 :b 2 :c 10} (merge-with + rec {:a 10 :c 10})))))
+    (is (.equals (r 1 3 {} {:c 4}) (merge rec {:b 3 :c 4})))
+    (is (.equals {:foo 1 :b 2} (set/rename-keys rec {:a :foo})))
+    (is (.equals {:a 11 :b 2 :c 10} (merge-with + rec {:a 10 :c 10})))))
+
+(deftest degenerate-defrecord-test
+  (let [empty (EmptyRecord.)]
+    (is (nil? (seq empty)))
+    (is (not (.containsValue empty :a)))))
 
 (deftest defrecord-interfaces-test
   (testing "java.util.Map"

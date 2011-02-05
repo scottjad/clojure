@@ -19,8 +19,8 @@
 
 (deftest test-identity
   ; exactly 1 argument needed
-  (is (thrown? IllegalArgumentException (identity)))
-  (is (thrown? IllegalArgumentException (identity 1 2)))
+;  (is (thrown? IllegalArgumentException (identity)))
+;  (is (thrown? IllegalArgumentException (identity 1 2)))
 
   (are [x] (= (identity x) x)
       nil
@@ -74,6 +74,19 @@
 
 ; partial
 ; comp
+
+(deftest test-comp
+  (let [c0 (comp)]
+    (are [x] (= (identity x) (c0 x))
+         nil
+         42
+         [1 2 3]
+         #{}
+         :foo)
+    (are [x y] (= (identity x) (c0 y))
+         (+ 1 2 3) 6
+         (keyword "foo") :foo)))
+
 ; complement
 ; constantly
 

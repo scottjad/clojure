@@ -33,8 +33,8 @@
 
 (defprotocol ^{:added "1.2"} Coercions
   "Coerce between various 'resource-namish' things."
-  (^{:tag File, :added "1.2"} as-file [x] "Coerce argument to a file.")
-  (^{:tag URL, :added "1.2"} as-url [x] "Coerce argument to a URL."))
+  (^{:tag java.io.File, :added "1.2"} as-file [x] "Coerce argument to a file.")
+  (^{:tag java.net.URL, :added "1.2"} as-url [x] "Coerce argument to a URL."))
 
 (extend-protocol Coercions
   nil
@@ -54,7 +54,7 @@
   (as-file [u]
     (if (= "file" (.getProtocol u))
       (as-file (.getPath u))
-      (throw (IllegalArgumentException. "Not a file: " u))))
+      (throw (IllegalArgumentException. (str "Not a file: " u)))))
 
   URI
   (as-url [u] (.toURL u))
@@ -259,8 +259,8 @@
 (extend Socket
   IOFactory
   (assoc default-streams-impl
-    :make-input-stream (fn [^Socket x opts] (.getInputStream x))
-    :output-stream (fn [^Socket x opts] (output-stream (.getOutputStream x) opts))))
+    :make-input-stream (fn [^Socket x opts] (make-input-stream (.getInputStream x) opts))
+    :make-output-stream (fn [^Socket x opts] (make-output-stream (.getOutputStream x) opts))))
 
 (extend byte-array-type
   IOFactory
