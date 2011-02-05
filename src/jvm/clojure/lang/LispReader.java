@@ -316,6 +316,16 @@ private static Object matchSymbol(String s){
 		Symbol sym = Symbol.intern(s.substring(isKeyword ? 1 : 0));
 		if(isKeyword)
 			return Keyword.intern(sym);
+        // basic symbol syntax ala Arc
+        // Ex. (let [person {:foo 1 "bar" 2}] [person:foo person:bar])
+        boolean isLookUp = s.contains(":");
+        if(isLookUp) {
+            String[] parts = s.split(":");
+            String sy = parts[0];
+            String ke = parts[1];
+            return RT.list(Symbol.intern("or"), RT.list(Symbol.intern(sy), Keyword.intern(ke)),
+                           RT.list(Symbol.intern(sy), ke));
+        }
 		return sym;
 		}
 	return null;
