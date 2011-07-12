@@ -12,7 +12,7 @@ It is poor form to (:use clojure.string). Instead, use require
 with :as to specify a prefix, e.g.
 
 (ns your.namespace.here
-  (:require '[clojure.string :as str]))
+  (:require [clojure.string :as str]))
 
 Design notes for clojure.string:
 
@@ -128,14 +128,14 @@ Design notes for clojure.string:
 
 
 (defn ^String join
-  "Returns a string of all elements in coll, separated by
-   an optional separator.  Like Perl's join."
+  "Returns a string of all elements in coll, as returned by (seq coll),
+   separated by an optional separator."
   {:added "1.2"}
   ([coll]
      (apply str coll))
-  ([separator [x & more]]
-     (loop [sb (StringBuilder. (str x))
-            more more
+  ([separator coll]
+     (loop [sb (StringBuilder. (str (first coll)))
+            more (next coll)
             sep (str separator)]
        (if more
          (recur (-> sb (.append sep) (.append (str (first more))))

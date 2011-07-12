@@ -12,9 +12,11 @@
 
 package clojure.lang;
 
-import java.util.concurrent.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.Map;
 
 public class Agent extends ARef {
 
@@ -34,18 +36,33 @@ static final Keyword CONTINUE = Keyword.intern(null, "continue");
 static final Keyword FAIL = Keyword.intern(null, "fail");
 
 volatile Object state;
-    AtomicReference<ActionQueue> aq = new AtomicReference(ActionQueue.EMPTY);
+    AtomicReference<ActionQueue> aq = new AtomicReference<ActionQueue>(ActionQueue.EMPTY);
 
     volatile Keyword errorMode = CONTINUE;
     volatile IFn errorHandler = null;
 
-final public static ExecutorService pooledExecutor =
-		Executors.newFixedThreadPool(2 + Runtime.getRuntime().availableProcessors());
+final private static AtomicLong sendThreadPoolCounter = new AtomicLong(0);
 
-final public static ExecutorService soloExecutor = Executors.newCachedThreadPool();
+final private static AtomicLong sendOffThreadPoolCounter = new AtomicLong(0);
+
+final public static ExecutorService pooledExecutor =
+	Executors.newFixedThreadPool(2 + Runtime.getRuntime().availableProcessors(), 
+		createThreadFactory("clojure-agent-send-pool-%d", sendThreadPoolCounter));
+
+final public static ExecutorService soloExecutor = Executors.newCachedThreadPool(
+	createThreadFactory("clojure-agent-send-off-pool-%d", sendOffThreadPoolCounter));
 
 final static ThreadLocal<IPersistentVector> nested = new ThreadLocal<IPersistentVector>();
 
+private static ThreadFactory createThreadFactory(final String format, final AtomicLong threadPoolCounter) {
+	return new ThreadFactory() {
+		public Thread newThread(Runnable runnable) {
+			Thread thread = new Thread(runnable);
+			thread.setName(String.format(format, threadPoolCounter.getAndIncrement()));
+			return thread;
+		}
+	};
+}
 
 public static void shutdown(){
 	soloExecutor.shutdown();
@@ -90,7 +107,6 @@ static class Action implements Runnable{
 	static void doRun(Action action){
 		try
 			{
-			Var.pushThreadBindings(RT.map(RT.AGENT, action.agent));
 			nested.set(PersistentVector.EMPTY);
 
 			Throwable error = null;
@@ -112,7 +128,7 @@ static class Action implements Runnable{
 				}
 			else
 				{
-				nested.set(PersistentVector.EMPTY);
+				nested.set(null); // allow errorHandler to send
 				if(action.agent.errorHandler != null)
 					{
 					try
@@ -142,7 +158,6 @@ static class Action implements Runnable{
 		finally
 			{
 			nested.set(null);
-			Var.popThreadBindings();
 			}
 	}
 
@@ -151,23 +166,23 @@ static class Action implements Runnable{
 	}
 }
 
-public Agent(Object state) throws Exception{
+public Agent(Object state) {
 	this(state,null);
 }
 
-public Agent(Object state, IPersistentMap meta) throws Exception {
+public Agent(Object state, IPersistentMap meta)  {
     super(meta);
     setState(state);
 }
 
-boolean setState(Object newState) throws Exception{
+boolean setState(Object newState) {
 	validate(newState);
 	boolean ret = state != newState;
 	state = newState;
 	return ret;
 }
 
-public Object deref() throws Exception{
+public Object deref() {
 	return state;
 }
 
@@ -194,7 +209,7 @@ public IFn getErrorHandler(){
 synchronized public Object restart(Object newState, boolean clearActions){
 	if(getError() == null)
 		{
-		throw new RuntimeException("Agent does not need a restart");
+		throw Util.runtimeException("Agent does not need a restart");
 		}
 	validate(newState);
 	state = newState;
@@ -222,7 +237,7 @@ public Object dispatch(IFn fn, ISeq args, boolean solo) {
 	Throwable error = getError();
 	if(error != null)
 		{
-		throw new RuntimeException("Agent is failed, needs restart", error);
+		throw Util.runtimeException("Agent is failed, needs restart", error);
 		}
 	Action action = new Action(this, fn, args, solo);
 	dispatchAction(action);

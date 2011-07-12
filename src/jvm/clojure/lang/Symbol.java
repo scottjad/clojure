@@ -37,6 +37,16 @@ public String getName(){
 	return name;
 }
 
+// the create thunks preserve binary compatibility with code compiled
+// against earlier version of Clojure and can be removed (at some point).
+static public Symbol create(String ns, String name) {
+    return Symbol.intern(ns, name);
+}
+
+static public Symbol create(String nsname) {
+    return Symbol.intern(nsname);
+}
+    
 static public Symbol intern(String ns, String name){
 	return new Symbol(ns == null ? null : ns.intern(), name.intern());
 }
@@ -47,14 +57,6 @@ static public Symbol intern(String nsname){
 		return new Symbol(null, nsname.intern());
 	else
 		return new Symbol(nsname.substring(0, i).intern(), nsname.substring(i + 1).intern());
-}
-
-static public Symbol create(String name_interned){
-	return new Symbol(null, name_interned);
-}
-
-static public Symbol create(String ns_interned, String name_interned){
-	return new Symbol(ns_interned, name_interned);
 }
 
 private Symbol(String ns_interned, String name_interned){
@@ -112,11 +114,11 @@ private Object readResolve() throws ObjectStreamException{
 	return intern(ns, name);
 }
 
-public Object invoke(Object obj) throws Exception{
+public Object invoke(Object obj) {
 	return RT.get(obj, this);
 }
 
-public Object invoke(Object obj, Object notFound) throws Exception{
+public Object invoke(Object obj, Object notFound) {
 	return RT.get(obj, this, notFound);
 }
 

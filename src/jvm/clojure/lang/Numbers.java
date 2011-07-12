@@ -85,36 +85,6 @@ static abstract class OpsP implements Ops{
 	}
 
 }
-static interface BitOps{
-	BitOps combine(BitOps y);
-
-	BitOps bitOpsWith(LongBitOps x);
-
-	BitOps bitOpsWith(BigIntBitOps x);
-
-	public Number not(Number x);
-
-	public Number and(Number x, Number y);
-
-	public Number or(Number x, Number y);
-
-	public Number xor(Number x, Number y);
-
-	public Number andNot(Number x, Number y);
-
-	public Number clearBit(Number x, int n);
-
-	public Number setBit(Number x, int n);
-
-	public Number flipBit(Number x, int n);
-
-	public boolean testBit(Number x, int n);
-
-	public Number shiftLeft(Number x, int n);
-
-	public Number shiftRight(Number x, int n);
-}
-
 
 static public boolean isZero(Object x){
 	return ops(x).isZero((Number)x);
@@ -167,7 +137,9 @@ static public Number minus(Object x, Object y){
 
 static public Number minusP(Object x, Object y){
 	Ops yops = ops(y);
-	return ops(x).combine(yops).addP((Number)x, yops.negateP((Number)y));
+	Number negativeY = yops.negateP((Number) y);
+	Ops negativeYOps = ops(negativeY);
+	return ops(x).combine(negativeYOps).addP((Number)x, negativeY);
 }
 
 static public Number multiply(Object x, Object y){
@@ -185,21 +157,24 @@ static public Number divide(Object x, Object y){
 	return ops(x).combine(yops).divide((Number)x, (Number)y);
 }
 
-static public Number quotient(Number x, Number y){
+static public Number quotient(Object x, Object y){
 	Ops yops = ops(y);
-	if(yops.isZero(y))
+	if(yops.isZero((Number) y))
 		throw new ArithmeticException("Divide by zero");
-	return ops(x).combine(yops).quotient(x, y);
+	return ops(x).combine(yops).quotient((Number)x, (Number)y);
 }
 
-static public Number remainder(Number x, Number y){
+static public Number remainder(Object x, Object y){
 	Ops yops = ops(y);
-	if(yops.isZero(y))
+	if(yops.isZero((Number) y))
 		throw new ArithmeticException("Divide by zero");
-	return ops(x).combine(yops).remainder(x, y);
+	return ops(x).combine(yops).remainder((Number)x, (Number)y);
 }
 
-static double quotient(double n, double d){
+static public double quotient(double n, double d){
+	if(d == 0)
+		throw new ArithmeticException("Divide by zero");
+
 	double q = n / d;
 	if(q <= Long.MAX_VALUE && q >= Long.MIN_VALUE)
 		{
@@ -211,7 +186,10 @@ static double quotient(double n, double d){
 		}
 }
 
-static double remainder(double n, double d){
+static public double remainder(double n, double d){
+	if(d == 0)
+		throw new ArithmeticException("Divide by zero");
+
 	double q = n / d;
 	if(q <= Long.MAX_VALUE && q >= Long.MIN_VALUE)
 		{
@@ -377,76 +355,37 @@ static public Number divide(BigInteger n, BigInteger d){
 	                 (d.signum() < 0 ? d.negate() : d));
 }
 
-static public Number not(Object x){
-	return bitOps(x).not((Number)x);
-}
-
-
-static public Number and(Object x, Object y){
-	return bitOps(x).combine(bitOps(y)).and((Number)x, (Number)y);
-}
-
-static public Number or(Object x, Object y){
-	return bitOps(x).combine(bitOps(y)).or((Number)x, (Number)y);
-}
-
-static public Number xor(Object x, Object y){
-	return bitOps(x).combine(bitOps(y)).xor((Number)x, (Number)y);
-}
-
-static public Number andNot(Number x, Number y){
-	return bitOps(x).combine(bitOps(y)).andNot(x, y);
-}
-
-static public Number clearBit(Number x, int n){
-	if(n < 0)
-		throw new ArithmeticException("Negative bit index");
-	return bitOps(x).clearBit(x, n);
-}
-
-static public Number setBit(Number x, int n){
-	if(n < 0)
-		throw new ArithmeticException("Negative bit index");
-	return bitOps(x).setBit(x, n);
-}
-
-static public Number flipBit(Number x, int n){
-	if(n < 0)
-		throw new ArithmeticException("Negative bit index");
-	return bitOps(x).flipBit(x, n);
-}
-
-static public boolean testBit(Number x, int n){
-	if(n < 0)
-		throw new ArithmeticException("Negative bit index");
-	return bitOps(x).testBit(x, n);
-}
-
-static public Number shiftLeft(Object x, Object n){
-	return bitOps(x).shiftLeft((Number)x, ((Number)n).intValue());
-}
-
 static public int shiftLeftInt(int x, int n){
 	return x << n;
 }
 
-static public long shiftLeft(long x, int n){
-	if(n < 0)
-		return shiftRight(x, -n);
-	return x << n;
+static public long shiftLeft(Object x, Object y){
+    return shiftLeft(bitOpsCast(x),bitOpsCast(y));
 }
-
-static public Number shiftRight(Object x, Object n){
-	return bitOps(x).shiftRight((Number)x, ((Number)n).intValue());
+static public long shiftLeft(Object x, long y){
+    return shiftLeft(bitOpsCast(x),y);
+}
+static public long shiftLeft(long x, Object y){
+    return shiftLeft(x,bitOpsCast(y));
+}
+static public long shiftLeft(long x, long n){
+	return x << n;
 }
 
 static public int shiftRightInt(int x, int n){
 	return x >> n;
 }
 
-static public long shiftRight(long x, int n){
-	if(n < 0)
-		return shiftLeft(x, -n);
+static public long shiftRight(Object x, Object y){
+    return shiftRight(bitOpsCast(x),bitOpsCast(y));
+}
+static public long shiftRight(Object x, long y){
+    return shiftRight(bitOpsCast(x),y);
+}
+static public long shiftRight(long x, Object y){
+    return shiftRight(x,bitOpsCast(y));
+}
+static public long shiftRight(long x, long n){
 	return x >> n;
 }
 
@@ -991,146 +930,11 @@ final static class BigDecimalOps extends OpsP{
 	}
 }
 
-final static class LongBitOps implements BitOps{
-	public BitOps combine(BitOps y){
-		return y.bitOpsWith(this);
-	}
-
-	final public BitOps bitOpsWith(LongBitOps x){
-		return this;
-	}
-
-	final public BitOps bitOpsWith(BigIntBitOps x){
-		return BIGINT_BITOPS;
-	}
-
-	public Number not(Number x){
-		return num(~x.longValue());
-	}
-
-	public Number and(Number x, Number y){
-		return num(x.longValue() & y.longValue());
-	}
-
-	public Number or(Number x, Number y){
-		return num(x.longValue() | y.longValue());
-	}
-
-	public Number xor(Number x, Number y){
-		return num(x.longValue() ^ y.longValue());
-	}
-
-	public Number andNot(Number x, Number y){
-		return num(x.longValue() & ~y.longValue());
-	}
-
-	public Number clearBit(Number x, int n){
-		if(n < 63)
-			return (num(x.longValue() & ~(1L << n)));
-		else
-			return BigInt.fromBigInteger(toBigInteger(x).clearBit(n));
-	}
-
-	public Number setBit(Number x, int n){
-		if(n < 63)
-			return num(x.longValue() | (1L << n));
-		else
-			return BigInt.fromBigInteger(toBigInteger(x).setBit(n));
-	}
-
-	public Number flipBit(Number x, int n){
-		if(n < 63)
-			return num(x.longValue() ^ (1L << n));
-		else
-			return BigInt.fromBigInteger(toBigInteger(x).flipBit(n));
-	}
-
-	public boolean testBit(Number x, int n){
-		if(n < 64)
-			return (x.longValue() & (1L << n)) != 0;
-		else
-			return toBigInteger(x).testBit(n);
-	}
-
-	public Number shiftLeft(Number x, int n){
-		if(n < 0)
-			return shiftRight(x, -n);
-		return num(Numbers.shiftLeft(x.longValue(), n));
-	}
-
-	public Number shiftRight(Number x, int n){
-		if(n < 0)
-			return shiftLeft(x, -n);
-		return num(x.longValue() >> n);
-	}
-}
-
-final static class BigIntBitOps implements BitOps{
-	public BitOps combine(BitOps y){
-		return y.bitOpsWith(this);
-	}
-
-	final public BitOps bitOpsWith(LongBitOps x){
-		return this;
-	}
-
-	final public BitOps bitOpsWith(BigIntBitOps x){
-		return this;
-	}
-
-	public Number not(Number x){
-		return BigInt.fromBigInteger(toBigInteger(x).not());
-	}
-
-	public Number and(Number x, Number y){
-		return BigInt.fromBigInteger(toBigInteger(x).and(toBigInteger(y)));
-	}
-
-	public Number or(Number x, Number y){
-		return BigInt.fromBigInteger(toBigInteger(x).or(toBigInteger(y)));
-	}
-
-	public Number xor(Number x, Number y){
-		return BigInt.fromBigInteger(toBigInteger(x).xor(toBigInteger(y)));
-	}
-
-	public Number andNot(Number x, Number y){
-		return BigInt.fromBigInteger(toBigInteger(x).andNot(toBigInteger(y)));
-	}
-
-	public Number clearBit(Number x, int n){
-		return BigInt.fromBigInteger(toBigInteger(x).clearBit(n));
-	}
-
-	public Number setBit(Number x, int n){
-		return BigInt.fromBigInteger(toBigInteger(x).setBit(n));
-	}
-
-	public Number flipBit(Number x, int n){
-		return BigInt.fromBigInteger(toBigInteger(x).flipBit(n));
-	}
-
-	public boolean testBit(Number x, int n){
-		return toBigInteger(x).testBit(n);
-	}
-
-	public Number shiftLeft(Number x, int n){
-		return BigInt.fromBigInteger(toBigInteger(x).shiftLeft(n));
-	}
-
-	public Number shiftRight(Number x, int n){
-		return BigInt.fromBigInteger(toBigInteger(x).shiftRight(n));
-	}
-}
-
 static final LongOps LONG_OPS = new LongOps();
 static final DoubleOps DOUBLE_OPS = new DoubleOps();
 static final RatioOps RATIO_OPS = new RatioOps();
 static final BigIntOps BIGINT_OPS = new BigIntOps();
 static final BigDecimalOps BIGDECIMAL_OPS = new BigDecimalOps();
-
-static final LongBitOps LONG_BITOPS = new LongBitOps();
-static final BigIntBitOps BIGINT_BITOPS = new BigIntBitOps();
 
 static public enum Category {INTEGER, FLOATING, DECIMAL, RATIO};
 
@@ -1178,21 +982,16 @@ static Category category(Object x){
 		return Category.INTEGER;
 }
 
-static BitOps bitOps(Object x){
+static long bitOpsCast(Object x){
 	Class xc = x.getClass();
 
-	if(xc == Long.class)
-		return LONG_BITOPS;
-	else if(xc == Integer.class)
-		return LONG_BITOPS;
-	else if(xc == BigInt.class)
-		return BIGINT_BITOPS;
-	else if(xc == BigInteger.class)
-		return BIGINT_BITOPS;
-	else if(xc == Double.class || xc == Float.class || xc == BigDecimalOps.class || xc == Ratio.class)
-		throw new ArithmeticException("bit operation on non integer type: " + xc);
-	else
-		return LONG_BITOPS;
+	if(xc == Long.class
+	        || xc == Integer.class
+	        || xc == Short.class
+	        || xc == Byte.class)
+		return RT.longCast(x);
+	// no bignums, no decimals
+	throw new IllegalArgumentException("bit operation not supported for: " + xc);
 }
 
 	static public float[] float_array(int size, Object init){
@@ -1480,7 +1279,7 @@ static public Number num(Object x){
 }
 
 static public Number num(float x){
-	return Double.valueOf(x);
+	return Float.valueOf(x);
 }
 
 static public Number num(double x){
@@ -1614,6 +1413,9 @@ static public int unchecked_int_multiply(int x, int y){
 //	return ~x;
 //}
 
+static public long not(Object x){
+    return not(bitOpsCast(x));
+}
 static public long not(long x){
 	return ~x;
 }
@@ -1621,6 +1423,15 @@ static public long not(long x){
 //	return x & y;
 //}
 
+static public long and(Object x, Object y){
+    return and(bitOpsCast(x),bitOpsCast(y));
+}
+static public long and(Object x, long y){
+    return and(bitOpsCast(x),y);
+}
+static public long and(long x, Object y){
+    return and(x,bitOpsCast(y));
+}
 static public long and(long x, long y){
 	return x & y;
 }
@@ -1629,16 +1440,99 @@ static public long and(long x, long y){
 //	return x | y;
 //}
 
+static public long or(Object x, Object y){
+    return or(bitOpsCast(x),bitOpsCast(y));
+}
+static public long or(Object x, long y){
+    return or(bitOpsCast(x),y);
+}
+static public long or(long x, Object y){
+    return or(x,bitOpsCast(y));
+}
 static public long or(long x, long y){
-	return x | y;
+    return x | y;
 }
 
 //static public int xor(int x, int y){
 //	return x ^ y;
 //}
 
+static public long xor(Object x, Object y){
+    return xor(bitOpsCast(x),bitOpsCast(y));
+}
+static public long xor(Object x, long y){
+    return xor(bitOpsCast(x),y);
+}
+static public long xor(long x, Object y){
+    return xor(x,bitOpsCast(y));
+}
 static public long xor(long x, long y){
-	return x ^ y;
+    return x ^ y;
+}
+
+static public long andNot(Object x, Object y){
+    return andNot(bitOpsCast(x),bitOpsCast(y));
+}
+static public long andNot(Object x, long y){
+    return andNot(bitOpsCast(x),y);
+}
+static public long andNot(long x, Object y){
+    return andNot(x,bitOpsCast(y));
+}
+static public long andNot(long x, long y){
+    return x & ~y;
+}
+
+static public long clearBit(Object x, Object y){
+    return clearBit(bitOpsCast(x),bitOpsCast(y));
+}
+static public long clearBit(Object x, long y){
+    return clearBit(bitOpsCast(x),y);
+}
+static public long clearBit(long x, Object y){
+    return clearBit(x,bitOpsCast(y));
+}
+static public long clearBit(long x, long n){
+    return x & ~(1L << n);
+}
+
+static public long setBit(Object x, Object y){
+    return setBit(bitOpsCast(x),bitOpsCast(y));
+}
+static public long setBit(Object x, long y){
+    return setBit(bitOpsCast(x),y);
+}
+static public long setBit(long x, Object y){
+    return setBit(x,bitOpsCast(y));
+}
+static public long setBit(long x, long n){
+    return x | (1L << n);
+}
+
+static public long flipBit(Object x, Object y){
+    return flipBit(bitOpsCast(x),bitOpsCast(y));
+}
+static public long flipBit(Object x, long y){
+    return flipBit(bitOpsCast(x),y);
+}
+static public long flipBit(long x, Object y){
+    return flipBit(x,bitOpsCast(y));
+}
+static public long flipBit(long x, long n){
+    return x ^ (1L << n);
+}
+
+static public boolean testBit(Object x, Object y){
+    return testBit(bitOpsCast(x),bitOpsCast(y));
+}
+static public boolean testBit(Object x, long y){
+    return testBit(bitOpsCast(x),y);
+}
+static public boolean testBit(long x, Object y){
+    return testBit(x,bitOpsCast(y));
+}
+static public boolean testBit(long x, long n){
+    return (x & (1L << n)) != 0;
 }
 
 //static public int minus(int x, int y){
@@ -1717,29 +1611,61 @@ static public Number num(long x){
 	return Long.valueOf(x);
 }
 
-static public long unchecked_long_add(long x, long y){
-	return x + y;
-}
+static public long unchecked_add(long x, long y){return x + y;}
+static public long unchecked_minus(long x, long y){return x - y;}
+static public long unchecked_multiply(long x, long y){return x * y;}
+static public long unchecked_minus(long x){return -x;}
+static public long unchecked_inc(long x){return x + 1;}
+static public long unchecked_dec(long x){return x - 1;}
 
-static public long unchecked_long_subtract(long x, long y){
-	return x - y;
-}
+static public Number unchecked_add(Object x, Object y){return add(x,y);}
+static public Number unchecked_minus(Object x, Object y){return minus(x,y);}
+static public Number unchecked_multiply(Object x, Object y){return multiply(x,y);}
+static public Number unchecked_minus(Object x){return minus(x);}
+static public Number unchecked_inc(Object x){return inc(x);}
+static public Number unchecked_dec(Object x){return dec(x);}
 
-static public long unchecked_long_negate(long x){
-	return -x;
-}
+static public double unchecked_add(double x, double y){return add(x,y);}
+static public double unchecked_minus(double x, double y){return minus(x,y);}
+static public double unchecked_multiply(double x, double y){return multiply(x,y);}
+static public double unchecked_minus(double x){return minus(x);}
+static public double unchecked_inc(double x){return inc(x);}
+static public double unchecked_dec(double x){return dec(x);}
 
-static public long unchecked_long_inc(long x){
-	return x + 1;
-}
+static public double unchecked_add(double x, Object y){return add(x,y);}
+static public double unchecked_minus(double x, Object y){return minus(x,y);}
+static public double unchecked_multiply(double x, Object y){return multiply(x,y);}
+static public double unchecked_add(Object x, double y){return add(x,y);}
+static public double unchecked_minus(Object x, double y){return minus(x,y);}
+static public double unchecked_multiply(Object x, double y){return multiply(x,y);}
 
-static public long unchecked_long_dec(long x){
-	return x - 1;
-}
+static public double unchecked_add(double x, long y){return add(x,y);}
+static public double unchecked_minus(double x, long y){return minus(x,y);}
+static public double unchecked_multiply(double x, long y){return multiply(x,y);}
+static public double unchecked_add(long x, double y){return add(x,y);}
+static public double unchecked_minus(long x, double y){return minus(x,y);}
+static public double unchecked_multiply(long x, double y){return multiply(x,y);}
 
-static public long unchecked_long_multiply(long x, long y){
-	return x * y;
-}
+static public Number unchecked_add(long x, Object y){return add(x,y);}
+static public Number unchecked_minus(long x, Object y){return minus(x,y);}
+static public Number unchecked_multiply(long x, Object y){return multiply(x,y);}
+static public Number unchecked_add(Object x, long y){return add(x,y);}
+static public Number unchecked_minus(Object x, long y){return minus(x,y);}
+static public Number unchecked_multiply(Object x, long y){return multiply(x,y);}
+
+static public Number quotient(double x, Object y){return quotient((Object)x,y);}
+static public Number quotient(Object x, double y){return quotient(x,(Object)y);}
+static public Number quotient(long x, Object y){return quotient((Object)x,y);}
+static public Number quotient(Object x, long y){return quotient(x,(Object)y);}
+static public double quotient(double x, long y){return quotient(x,(double)y);}
+static public double quotient(long x, double y){return quotient((double)x,y);}
+
+static public Number remainder(double x, Object y){return remainder((Object)x,y);}
+static public Number remainder(Object x, double y){return remainder(x,(Object)y);}
+static public Number remainder(long x, Object y){return remainder((Object)x,y);}
+static public Number remainder(Object x, long y){return remainder(x,(Object)y);}
+static public double remainder(double x, long y){return remainder(x,(double)y);}
+static public double remainder(long x, double y){return remainder((double)x,y);}
 
 static public long add(long x, long y){
 	long ret = x + y;
@@ -1820,11 +1746,11 @@ static public Number multiplyP(long x, long y){
 	return num(ret);
 }
 
-static public long unchecked_long_divide(long x, long y){
+static public long quotient(long x, long y){
 	return x / y;
 }
 
-static public long unchecked_long_remainder(long x, long y){
+static public long remainder(long x, long y){
 	return x % y;
 }
 
@@ -2274,14 +2200,14 @@ static public class F{
 		return xs;
 	}
 
-	static public float[] vmap(IFn fn, float[] x) throws Exception{
+	static public float[] vmap(IFn fn, float[] x) {
 		float[] xs = x.clone();
 		for(int i = 0; i < xs.length; i++)
 			xs[i] = ((Number) fn.invoke(xs[i])).floatValue();
 		return xs;
 	}
 
-	static public float[] vmap(IFn fn, float[] x, float[] ys) throws Exception{
+	static public float[] vmap(IFn fn, float[] x, float[] ys) {
 		float[] xs = x.clone();
 		for(int i = 0; i < xs.length; i++)
 			xs[i] = ((Number) fn.invoke(xs[i], ys[i])).floatValue();
@@ -2702,14 +2628,14 @@ static public class D{
 		return xs;
 	}
 
-	static public double[] vmap(IFn fn, double[] x) throws Exception{
+	static public double[] vmap(IFn fn, double[] x) {
 		double[] xs = x.clone();
 		for(int i = 0; i < xs.length; i++)
 			xs[i] = ((Number) fn.invoke(xs[i])).doubleValue();
 		return xs;
 	}
 
-	static public double[] vmap(IFn fn, double[] x, double[] ys) throws Exception{
+	static public double[] vmap(IFn fn, double[] x, double[] ys) {
 		double[] xs = x.clone();
 		for(int i = 0; i < xs.length; i++)
 			xs[i] = ((Number) fn.invoke(xs[i], ys[i])).doubleValue();
@@ -3129,14 +3055,14 @@ static public class I{
 		return xs;
 	}
 
-	static public int[] vmap(IFn fn, int[] x) throws Exception{
+	static public int[] vmap(IFn fn, int[] x) {
 		int[] xs = x.clone();
 		for(int i = 0; i < xs.length; i++)
 			xs[i] = ((Number) fn.invoke(xs[i])).intValue();
 		return xs;
 	}
 
-	static public int[] vmap(IFn fn, int[] x, int[] ys) throws Exception{
+	static public int[] vmap(IFn fn, int[] x, int[] ys) {
 		int[] xs = x.clone();
 		for(int i = 0; i < xs.length; i++)
 			xs[i] = ((Number) fn.invoke(xs[i], ys[i])).intValue();
@@ -3558,14 +3484,14 @@ static public class L{
 		return xs;
 	}
 
-	static public long[] vmap(IFn fn, long[] x) throws Exception{
+	static public long[] vmap(IFn fn, long[] x) {
 		long[] xs = x.clone();
 		for(int i = 0; i < xs.length; i++)
 			xs[i] = ((Number) fn.invoke(xs[i])).longValue();
 		return xs;
 	}
 
-	static public long[] vmap(IFn fn, long[] x, long[] ys) throws Exception{
+	static public long[] vmap(IFn fn, long[] x, long[] ys) {
 		long[] xs = x.clone();
 		for(int i = 0; i < xs.length; i++)
 			xs[i] = ((Number) fn.invoke(xs[i], ys[i])).longValue();
@@ -3744,7 +3670,11 @@ static public double divide(double x, long y){
 }
 
 static public double divide(long x, double y){
-	return x / y;
+    return x / y;
+}
+
+static public Number divide(long x, long y){
+	return divide((Number)x, (Number)y);
 }
 
 static public boolean lt(long x, Object y){
@@ -3867,5 +3797,151 @@ static public boolean equiv(long x, double y){
 	return x == y;
 }
 
+static public double max(double x, double y){
+	if(x > y){
+		return x;
+	} else {
+		return y;
+	}
+}
+
+static public Object max(double x, long y){
+	if(x > y){
+		return x;
+	} else {
+		return y;
+	}
+}
+
+static public Object max(double x, Object y){
+	if(x > ((Number)y).doubleValue()){
+		return x;
+	} else {
+		return y;
+	}
+}
+
+static public Object max(long x, double y){
+	if(x > y){
+		return x;
+	} else {
+		return y;
+	}
+}
+
+
+static public long max(long x, long y){
+	if(x > y) {
+		return x;
+	} else {
+		return y;
+	}
+}
+
+static public Object max(long x, Object y){
+	if(gt(x,y)){
+		return x;
+	} else {
+		return y;
+	}
+}
+
+static public Object max(Object x, long y){
+	if(gt(x,y)){
+		return x;
+	} else {
+		return y;
+	}
+}
+
+static public Object max(Object x, double y){
+	if(((Number)x).doubleValue() > y){
+		return x;
+	} else {
+		return y;
+	}
+}
+
+static public Object max(Object x, Object y){
+	if(gt(x, y)) {
+		return x;
+	} else {
+		return y;
+	}
+}
+
+
+static public double min(double x, double y){
+	if(x < y){
+		return x;
+	} else {
+		return y;
+	}
+}
+
+static public Object min(double x, long y){
+	if(x < y){
+		return x;
+	} else {
+		return y;
+	}
+}
+
+static public Object min(double x, Object y){
+	if(x < ((Number)y).doubleValue()){
+		return x;
+	} else {
+		return y;
+	}
+}
+
+static public Object min(long x, double y){
+	if(x < y){
+		return x;
+	} else {
+		return y;
+	}
+}
+
+
+static public long min(long x, long y){
+	if(x < y) {
+		return x;
+	} else {
+		return y;
+	}
+}
+
+static public Object min(long x, Object y){
+	if(lt(x,y)){
+		return x;
+	} else {
+		return y;
+	}
+}
+
+static public Object min(Object x, long y){
+	if(lt(x,y)){
+		return x;
+	} else {
+		return y;
+	}
+}
+
+static public Object min(Object x, double y){
+	if(((Number)x).doubleValue() < y){
+		return x;
+	} else {
+		return y;
+	}
+}
+
+static public Object min(Object x, Object y){
+	if(lt(x,y)) {
+		return x;
+	} else {
+		return y;
+	}
+}
 
 }

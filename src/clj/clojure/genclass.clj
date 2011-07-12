@@ -71,14 +71,22 @@
 
 (def ^{:private true} prim->class
      {'int Integer/TYPE
+      'ints (Class/forName "[I")
       'long Long/TYPE
+      'longs (Class/forName "[J")
       'float Float/TYPE
+      'floats (Class/forName "[F")
       'double Double/TYPE
+      'doubles (Class/forName "[D")
       'void Void/TYPE
       'short Short/TYPE
+      'shorts (Class/forName "[S")
       'boolean Boolean/TYPE
+      'booleans (Class/forName "[Z")
       'byte Byte/TYPE
-      'char Character/TYPE})
+      'bytes (Class/forName "[B")
+      'char Character/TYPE
+      'chars (Class/forName "[C")})
 
 (defn- ^Class the-class [x] 
   (cond 
@@ -627,7 +635,7 @@
     (Type/getType (the-class c))
     (let [strx (str c)]
       (Type/getObjectType 
-       (.replace (if (some #{\.} strx)
+       (.replace (if (some #{\. \[} strx)
                    strx
                    (str "java.lang." strx)) 
                  "." "/")))))

@@ -145,6 +145,8 @@
    (defn test-ns-hook []
      (arithmetic))
 
+   Note: test-ns-hook prevents execution of fixtures (see below).
+
 
    OMITTING TESTS FROM PRODUCTION CODE
 
@@ -153,7 +155,7 @@
    being created by \"with-test\" or \"deftest\".
 
 
-   FIXTURES (new)
+   FIXTURES
 
    Fixtures allow you to run code before and after tests, to set up
    the context in which tests should be run.
@@ -186,6 +188,9 @@
 
    Attach \"once\" fixtures to the current namespace like this:
    (use-fixtures :once fixture1 fixture2 ...)
+
+   Note: Fixtures and test-ns-hook are mutually incompatible.  If you
+   are using test-ns-hook, fixture functions will *never* be run.
 
 
    SAVING TEST OUTPUT TO A FILE
@@ -236,14 +241,14 @@
 
 ;;; USER-MODIFIABLE GLOBALS
 
-(defonce
+(defonce ^:dynamic
   ^{:doc "True by default.  If set to false, no test functions will
    be created by deftest, set-test, or with-test.  Use this to omit
    tests when compiling or loading production code."
     :added "1.1"}
   *load-tests* true)
 
-(def
+(def ^:dynamic
  ^{:doc "The maximum depth of stack traces to print when an Exception
   is thrown during a test.  Defaults to nil, which means print the 
   complete stack trace."
@@ -253,16 +258,16 @@
 
 ;;; GLOBALS USED BY THE REPORTING FUNCTIONS
 
-(def *report-counters* nil)	  ; bound to a ref of a map in test-ns
+(def ^:dynamic *report-counters* nil)	  ; bound to a ref of a map in test-ns
 
-(def *initial-report-counters*  ; used to initialize *report-counters*
+(def ^:dynamic *initial-report-counters*  ; used to initialize *report-counters*
      {:test 0, :pass 0, :fail 0, :error 0})
 
-(def *testing-vars* (list))  ; bound to hierarchy of vars being tested
+(def ^:dynamic *testing-vars* (list))  ; bound to hierarchy of vars being tested
 
-(def *testing-contexts* (list)) ; bound to hierarchy of "testing" strings
+(def ^:dynamic *testing-contexts* (list)) ; bound to hierarchy of "testing" strings
 
-(def *test-out* *out*)         ; PrintWriter for test reporting output
+(def ^:dynamic *test-out* *out*)         ; PrintWriter for test reporting output
 
 (defmacro with-test-out
   "Runs body with *out* bound to the value of *test-out*."

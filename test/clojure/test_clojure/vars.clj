@@ -19,16 +19,24 @@
 
 ; declare intern binding find-var var
 
-(def a)
+(def ^:dynamic a)
 (deftest test-binding
   (are [x y] (= x y)
       (eval `(binding [a 4] a)) 4     ; regression in Clojure SVN r1370
   ))
 
-; with-local-vars var-get var-set alter-var-root [var? (predicates.clj)]
+; var-get var-set alter-var-root [var? (predicates.clj)]
 ; with-in-str with-out-str
 ; with-open
-; with-precision
+
+(deftest test-with-local-vars
+  (let [factorial (fn [x]
+                    (with-local-vars [acc 1, cnt x]
+                      (while (> @cnt 0)
+                        (var-set acc (* @acc @cnt))
+                        (var-set cnt (dec @cnt)))
+                      @acc))]
+    (is (= (factorial 5) 120))))
 
 (deftest test-with-precision
   (are [x y] (= x y)
@@ -54,3 +62,30 @@
 
 ; doc find-doc test
 
+(def stub-me :original)
+
+(deftest test-with-redefs-fn
+  (let [p (promise)]
+    (with-redefs-fn {#'stub-me :temp}
+      (fn []
+        (.start (Thread. #(deliver p stub-me)))
+        @p))
+    (is (= :temp @p))
+    (is (= :original stub-me))))
+
+(deftest test-with-redefs
+  (let [p (promise)]
+    (with-redefs [stub-me :temp]
+      (.start (Thread. #(deliver p stub-me)))
+      @p)
+    (is (= :temp @p))
+    (is (= :original stub-me))))
+
+(deftest test-with-redefs-throw
+  (let [p (promise)]
+    (is (thrown? Exception
+      (with-redefs [stub-me :temp]
+        (deliver p stub-me)
+        (throw (Exception. "simulated failure in with-redefs")))))
+    (is (= :temp @p))
+    (is (= :original stub-me))))

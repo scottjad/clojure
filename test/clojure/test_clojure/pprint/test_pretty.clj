@@ -209,13 +209,6 @@ Usage: *hello*
 (deliver promise-filled '(first second third))
 (def promise-unfilled (promise))
 (def basic-agent (agent '(first second third)))
-(defn failed-agent
-  "must be a fn because you cannot await agents during load"
-  []
-  (let [a (agent "foo")]
-    (send a +)
-    (try (await-for 100 a) (catch RuntimeException re))
-    a))
 (def basic-atom (atom '(first second third)))
 (def basic-ref (ref '(first second third)))
 (def delay-forced (delay '(first second third)))
@@ -224,16 +217,15 @@ Usage: *hello*
 (defrecord pprint-test-rec [a b c])
 
 (simple-tests pprint-datastructures-tests
- (tst-pprint 20 future-filled) #"#<Future@[0-9a-f]+: \n  100>"
- (tst-pprint 20 future-unfilled) #"#<Future@[0-9a-f]+: \n  :pending>"
- (tst-pprint 20 promise-filled) #"#<Promise@[0-9a-f]+: \n  \(first\n   second\n   third\)>"
+ (tst-pprint 20 future-filled) #"#<Future@[0-9a-f]+: \r?\n  100>"
+ (tst-pprint 20 future-unfilled) #"#<Future@[0-9a-f]+: \r?\n  :pending>"
+ (tst-pprint 20 promise-filled) #"#<Promise@[0-9a-f]+: \r?\n  \(first\r?\n   second\r?\n   third\)>"
  ;; This hangs currently, cause we can't figure out whether a promise is filled
- ;;(tst-pprint 20 promise-unfilled) #"#<Promise@[0-9a-f]+: \n  :pending>"
- (tst-pprint 20 basic-agent) #"#<Agent@[0-9a-f]+: \n  \(first\n   second\n   third\)>"
- (tst-pprint 20 (failed-agent)) #"#<Agent@[0-9a-f]+ FAILED: \n  \"foo\">"
- (tst-pprint 20 basic-atom) #"#<Atom@[0-9a-f]+: \n  \(first\n   second\n   third\)>"
- (tst-pprint 20 basic-ref) #"#<Ref@[0-9a-f]+: \n  \(first\n   second\n   third\)>"
- (tst-pprint 20 delay-forced) #"#<Delay@[0-9a-f]+: \n  \(first\n   second\n   third\)>"
+ ;;(tst-pprint 20 promise-unfilled) #"#<Promise@[0-9a-f]+: \r?\n  :pending>"
+ (tst-pprint 20 basic-agent) #"#<Agent@[0-9a-f]+: \r?\n  \(first\r?\n   second\r?\n   third\)>"
+ (tst-pprint 20 basic-atom) #"#<Atom@[0-9a-f]+: \r?\n  \(first\r?\n   second\r?\n   third\r?\)>"
+ (tst-pprint 20 basic-ref) #"#<Ref@[0-9a-f]+: \r?\n  \(first\r?\n   second\r?\n   third\)>"
+ (tst-pprint 20 delay-forced) #"#<Delay@[0-9a-f]+: \r?\n  \(first\r?\n   second\r?\n   third\)>"
  ;; Currently no way not to force the delay
  ;;(tst-pprint 20 delay-unforced) #"#<Delay@[0-9a-f]+: \n  :pending>"
  (tst-pprint 20 (pprint-test-rec. 'first 'second 'third)) "{:a first,\n :b second,\n :c third}"
@@ -272,4 +264,55 @@ Usage: *hello*
   "[\"hello\" \"there\"]\n"
 )
 
+(simple-tests print-length-tests
+  (binding [*print-length* 1] (with-out-str (pprint '(a b c d e f))))
+  "(a ...)\n"
+  (binding [*print-length* 2] (with-out-str (pprint '(a b c d e f))))
+  "(a b ...)\n"
+  (binding [*print-length* 6] (with-out-str (pprint '(a b c d e f))))
+  "(a b c d e f)\n"
+  (binding [*print-length* 8] (with-out-str (pprint '(a b c d e f))))
+  "(a b c d e f)\n"
+
+  (binding [*print-length* 1] (with-out-str (pprint [1 2 3 4 5 6])))
+  "[1 ...]\n"
+  (binding [*print-length* 2] (with-out-str (pprint [1 2 3 4 5 6])))
+  "[1 2 ...]\n"
+  (binding [*print-length* 6] (with-out-str (pprint [1 2 3 4 5 6])))
+  "[1 2 3 4 5 6]\n"
+  (binding [*print-length* 8] (with-out-str (pprint [1 2 3 4 5 6])))
+  "[1 2 3 4 5 6]\n"
+
+  ;; This set of tests isn't that great cause it assumes that the set remains
+  ;; ordered for printing. This is currently (1.3) true, but no future
+  ;; guarantees
+  (binding [*print-length* 1] (with-out-str (pprint #{1 2 3 4 5 6})))
+  "#{1 ...}\n"
+  (binding [*print-length* 2] (with-out-str (pprint #{1 2 3 4 5 6})))
+  "#{1 2 ...}\n"
+  (binding [*print-length* 6] (with-out-str (pprint #{1 2 3 4 5 6})))
+  "#{1 2 3 4 5 6}\n"
+  (binding [*print-length* 8] (with-out-str (pprint #{1 2 3 4 5 6})))
+  "#{1 2 3 4 5 6}\n"
+
+  ;; See above comment and apply to this map :)
+  (binding [*print-length* 1] (with-out-str (pprint {1 2, 3 4, 5 6, 7 8, 9 10, 11 12})))
+  "{1 2, ...}\n"
+  (binding [*print-length* 2] (with-out-str (pprint {1 2, 3 4, 5 6, 7 8, 9 10, 11 12})))
+  "{1 2, 3 4, ...}\n"
+  (binding [*print-length* 6] (with-out-str (pprint {1 2, 3 4, 5 6, 7 8, 9 10, 11 12})))
+  "{1 2, 3 4, 5 6, 7 8, 9 10, 11 12}\n"
+  (binding [*print-length* 8] (with-out-str (pprint {1 2, 3 4, 5 6, 7 8, 9 10, 11 12})))
+  "{1 2, 3 4, 5 6, 7 8, 9 10, 11 12}\n"
+
+
+  (binding [*print-length* 1] (with-out-str (pprint (int-array [1 2 3 4 5 6]))))
+  "[1, ...]\n"
+  (binding [*print-length* 2] (with-out-str (pprint (int-array [1 2 3 4 5 6]))))
+  "[1, 2, ...]\n"
+  (binding [*print-length* 6] (with-out-str (pprint (int-array [1 2 3 4 5 6]))))
+  "[1, 2, 3, 4, 5, 6]\n"
+  (binding [*print-length* 8] (with-out-str (pprint (int-array [1 2 3 4 5 6]))))
+  "[1, 2, 3, 4, 5, 6]\n"
+  )
 

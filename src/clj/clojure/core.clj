@@ -303,7 +303,9 @@
                     m))
               m (conj (if (meta name) (meta name) {}) m)]
           (list 'def (with-meta name m)
-                (list '.withMeta (cons `fn (cons (with-meta name m) fdecl)) (list '.meta (list 'var name)))))))
+                ;;todo - restore propagation of fn name
+                ;;must figure out how to convey primitive hints to self calls first
+                (cons `fn fdecl) ))))
 
 (. (var defn) (setMacro))
 
@@ -396,7 +398,8 @@
   "Returns true if x is nil, false otherwise."
   {:tag Boolean
    :added "1.0"
-   :static true}
+   :static true
+   :inline (fn [x] (list 'clojure.lang.Util/identical x nil))}
   [x] (clojure.lang.Util/identical x nil))
 
 (def
@@ -554,6 +557,20 @@
                 (string? name) (clojure.lang.Keyword/intern ^String name)))
   ([ns name] (clojure.lang.Keyword/intern ns name)))
 
+(defn find-keyword
+  "Returns a Keyword with the given namespace and name if one already
+  exists.  This function will not intern a new keyword. If the keyword
+  has not already been interned, it will return nil.  Do not use :
+  in the keyword strings, it will be added automatically."
+  {:tag clojure.lang.Keyword
+   :added "1.3"
+   :static true}
+  ([name] (cond (keyword? name) name
+                (symbol? name) (clojure.lang.Keyword/find ^clojure.lang.Symbol name)
+                (string? name) (clojure.lang.Keyword/find ^String name)))
+  ([ns name] (clojure.lang.Keyword/find ns name)))
+
+
 (defn spread
   {:private true
    :static true}
@@ -602,27 +619,27 @@
   "Takes a body of expressions that returns an ISeq or nil, and yields
   a Seqable object that will invoke the body only the first time seq
   is called, and will cache the result and return it on all subsequent
-  seq calls."
+  seq calls. See also - realized?"
   {:added "1.0"}
   [& body]
   (list 'new 'clojure.lang.LazySeq (list* '^{:once true} fn* [] body)))    
 
-(defn ^:static chunk-buffer ^clojure.lang.ChunkBuffer [capacity]
+(defn ^:static ^clojure.lang.ChunkBuffer chunk-buffer ^clojure.lang.ChunkBuffer [capacity]
   (clojure.lang.ChunkBuffer. capacity))
 
 (defn ^:static chunk-append [^clojure.lang.ChunkBuffer b x]
   (.add b x))
 
-(defn ^:static chunk [^clojure.lang.ChunkBuffer b]
+(defn ^:static ^clojure.lang.IChunk chunk [^clojure.lang.ChunkBuffer b]
   (.chunk b))
 
-(defn ^:static chunk-first ^clojure.lang.IChunk [^clojure.lang.IChunkedSeq s]
+(defn ^:static  ^clojure.lang.IChunk chunk-first ^clojure.lang.IChunk [^clojure.lang.IChunkedSeq s]
   (.chunkedFirst s))
 
-(defn ^:static chunk-rest ^clojure.lang.ISeq [^clojure.lang.IChunkedSeq s]
+(defn ^:static ^clojure.lang.ISeq chunk-rest ^clojure.lang.ISeq [^clojure.lang.IChunkedSeq s]
   (.chunkedMore s))
 
-(defn ^:static chunk-next ^clojure.lang.ISeq [^clojure.lang.IChunkedSeq s]
+(defn ^:static ^clojure.lang.ISeq chunk-next ^clojure.lang.ISeq [^clojure.lang.IChunkedSeq s]
   (.chunkedNext s))
 
 (defn ^:static chunk-cons [chunk rest]
@@ -665,7 +682,7 @@
   "Takes a body of expressions and yields a Delay object that will
   invoke the body only the first time it is forced (with force or deref/@), and
   will cache the result and return it on all subsequent force
-  calls."
+  calls. See also - realized?"
   {:added "1.0"}
   [& body]
     (list 'new 'clojure.lang.Delay (list* `^{:once true} fn* [] body)))
@@ -800,7 +817,7 @@
 (defn int
   "Coerce to int"
   {
-   :inline (fn  [x] `(. clojure.lang.RT (intCast ~x)))
+   :inline (fn  [x] `(. clojure.lang.RT (~(if *unchecked-math* 'uncheckedIntCast 'intCast) ~x)))
    :added "1.0"}
   [x] (. clojure.lang.RT (intCast x)))
 
@@ -840,7 +857,7 @@
 (defn inc
   "Returns a number one greater than num. Does not auto-promote
   longs, will throw on overflow. See also: inc'"
-  {:inline (fn [x] `(. clojure.lang.Numbers (inc ~x)))
+  {:inline (fn [x] `(. clojure.lang.Numbers (~(if *unchecked-math* 'unchecked_inc 'inc) ~x)))
    :added "1.2"}
   [x] (. clojure.lang.Numbers (inc x)))
 
@@ -870,11 +887,28 @@
     (reduce1 conj () coll))
 
 ;;math stuff
+(defn ^:private nary-inline
+  ([op]
+    (fn
+      ([x] `(. clojure.lang.Numbers (~op ~x)))
+      ([x y] `(. clojure.lang.Numbers (~op ~x ~y)))
+      ([x y & more]
+        (reduce1
+          (fn [a b] `(. clojure.lang.Numbers (~op ~a ~b)))
+          `(. clojure.lang.Numbers (~op ~x ~y)) more))))
+  ([op unchecked-op]
+    (if *unchecked-math*
+      (nary-inline unchecked-op)
+      (nary-inline op))))
+
+(defn ^:private >1? [n] (clojure.lang.Numbers/gt n 1))
+(defn ^:private >0? [n] (clojure.lang.Numbers/gt n 0))
+
 (defn +'
   "Returns the sum of nums. (+) returns 0. Supports arbitrary precision.
   See also: +"
-  {:inline (fn [x y] `(. clojure.lang.Numbers (addP ~x ~y)))
-   :inline-arities #{2}
+  {:inline (nary-inline 'addP)
+   :inline-arities >1?
    :added "1.0"}
   ([] 0)
   ([x] (cast Number x))
@@ -885,8 +919,8 @@
 (defn +
   "Returns the sum of nums. (+) returns 0. Does not auto-promote
   longs, will throw on overflow. See also: +'"
-  {:inline (fn [x y] `(. clojure.lang.Numbers (add ~x ~y)))
-   :inline-arities #{2}
+  {:inline (nary-inline 'add 'unchecked_add)
+   :inline-arities >1?
    :added "1.2"}
   ([] 0)
   ([x] (cast Number x))
@@ -897,8 +931,8 @@
 (defn *'
   "Returns the product of nums. (*) returns 1. Supports arbitrary precision.
   See also: *"
-  {:inline (fn [x y] `(. clojure.lang.Numbers (multiplyP ~x ~y)))
-   :inline-arities #{2}
+  {:inline (nary-inline 'multiplyP)
+   :inline-arities >1?
    :added "1.0"}
   ([] 1)
   ([x] (cast Number x))
@@ -909,8 +943,8 @@
 (defn *
   "Returns the product of nums. (*) returns 1. Does not auto-promote
   longs, will throw on overflow. See also: *'"
-  {:inline (fn [x y] `(. clojure.lang.Numbers (multiply ~x ~y)))
-   :inline-arities #{2}
+  {:inline (nary-inline 'multiply 'unchecked_multiply)
+   :inline-arities >1?
    :added "1.2"}
   ([] 1)
   ([x] (cast Number x))
@@ -921,8 +955,8 @@
 (defn /
   "If no denominators are supplied, returns 1/numerator,
   else returns numerator divided by all of the denominators."
-  {:inline (fn [x y] `(. clojure.lang.Numbers (divide ~x ~y)))
-   :inline-arities #{2}
+  {:inline (nary-inline 'divide)
+   :inline-arities >1?
    :added "1.0"}
   ([x] (/ 1 x))
   ([x y] (. clojure.lang.Numbers (divide x y)))
@@ -933,8 +967,8 @@
   "If no ys are supplied, returns the negation of x, else subtracts
   the ys from x and returns the result. Supports arbitrary precision.
   See also: -"
-  {:inline (fn [& args] `(. clojure.lang.Numbers (minusP ~@args)))
-   :inline-arities #{1 2}
+  {:inline (nary-inline 'minusP)
+   :inline-arities >0?
    :added "1.0"}
   ([x] (. clojure.lang.Numbers (minusP x)))
   ([x y] (. clojure.lang.Numbers (minusP x y)))
@@ -945,8 +979,8 @@
   "If no ys are supplied, returns the negation of x, else subtracts
   the ys from x and returns the result. Does not auto-promote
   longs, will throw on overflow. See also: -'"
-  {:inline (fn [& args] `(. clojure.lang.Numbers (minus ~@args)))
-   :inline-arities #{1 2}
+  {:inline (nary-inline 'minus 'unchecked_minus)
+   :inline-arities >0?
    :added "1.2"}
   ([x] (. clojure.lang.Numbers (minus x)))
   ([x y] (. clojure.lang.Numbers (minus x y)))
@@ -1016,18 +1050,20 @@
 (defn max
   "Returns the greatest of the nums."
   {:added "1.0"
-   :static true}
+   :inline-arities >1?
+   :inline (nary-inline 'max)}
   ([x] x)
-  ([x y] (if (> x y) x y))
+  ([x y] (. clojure.lang.Numbers (max x y)))
   ([x y & more]
    (reduce1 max (max x y) more)))
 
 (defn min
   "Returns the least of the nums."
   {:added "1.0"
-   :static true}
+   :inline-arities >1?
+   :inline (nary-inline 'min)}
   ([x] x)
-  ([x y] (if (< x y) x y))
+  ([x y] (. clojure.lang.Numbers (min x y)))
   ([x y & more]
    (reduce1 min (min x y) more)))
 
@@ -1041,7 +1077,7 @@
 (defn dec
   "Returns a number one less than num. Does not auto-promote
   longs, will throw on overflow. See also: dec'"
-  {:inline (fn [x] `(. clojure.lang.Numbers (dec ~x)))
+  {:inline (fn [x] `(. clojure.lang.Numbers (~(if *unchecked-math* 'unchecked_dec 'dec) ~x)))
    :added "1.2"}
   [x] (. clojure.lang.Numbers (dec x)))
 
@@ -1052,12 +1088,12 @@
    :added "1.0"}
   [x] (. clojure.lang.Numbers (unchecked_int_inc x)))
 
-(defn unchecked-inc-long
+(defn unchecked-inc
   "Returns a number one greater than x, a long.
   Note - uses a primitive operator subject to overflow."
-  {:inline (fn [x] `(. clojure.lang.Numbers (unchecked_long_inc ~x)))
+  {:inline (fn [x] `(. clojure.lang.Numbers (unchecked_inc ~x)))
    :added "1.0"}
-  [x] (. clojure.lang.Numbers (unchecked_long_inc x)))
+  [x] (. clojure.lang.Numbers (unchecked_inc x)))
 
 (defn unchecked-dec-int
   "Returns a number one less than x, an int.
@@ -1066,12 +1102,12 @@
    :added "1.0"}
   [x] (. clojure.lang.Numbers (unchecked_int_dec x)))
 
-(defn unchecked-dec-long
+(defn unchecked-dec
   "Returns a number one less than x, a long.
   Note - uses a primitive operator subject to overflow."
-  {:inline (fn [x] `(. clojure.lang.Numbers (unchecked_long_dec ~x)))
+  {:inline (fn [x] `(. clojure.lang.Numbers (unchecked_dec ~x)))
    :added "1.0"}
-  [x] (. clojure.lang.Numbers (unchecked_long_dec x)))
+  [x] (. clojure.lang.Numbers (unchecked_dec x)))
 
 (defn unchecked-negate-int
   "Returns the negation of x, an int.
@@ -1080,12 +1116,12 @@
    :added "1.0"}
   [x] (. clojure.lang.Numbers (unchecked_int_negate x)))
 
-(defn unchecked-negate-long
+(defn unchecked-negate
   "Returns the negation of x, a long.
   Note - uses a primitive operator subject to overflow."
-  {:inline (fn [x] `(. clojure.lang.Numbers (unchecked_long_negate ~x)))
+  {:inline (fn [x] `(. clojure.lang.Numbers (unchecked_minus ~x)))
    :added "1.0"}
-  [x] (. clojure.lang.Numbers (unchecked_long_negate x)))
+  [x] (. clojure.lang.Numbers (unchecked_minus x)))
 
 (defn unchecked-add-int
   "Returns the sum of x and y, both int.
@@ -1094,12 +1130,12 @@
    :added "1.0"}
   [x y] (. clojure.lang.Numbers (unchecked_int_add x y)))
 
-(defn unchecked-add-long
+(defn unchecked-add
   "Returns the sum of x and y, both long.
   Note - uses a primitive operator subject to overflow."
-  {:inline (fn [x y] `(. clojure.lang.Numbers (unchecked_long_add ~x ~y)))
+  {:inline (fn [x y] `(. clojure.lang.Numbers (unchecked_add ~x ~y)))
    :added "1.0"}
-  [x y] (. clojure.lang.Numbers (unchecked_long_add x y)))
+  [x y] (. clojure.lang.Numbers (unchecked_add x y)))
 
 (defn unchecked-subtract-int
   "Returns the difference of x and y, both int.
@@ -1108,12 +1144,12 @@
    :added "1.0"}
   [x y] (. clojure.lang.Numbers (unchecked_int_subtract x y)))
 
-(defn unchecked-subtract-long
+(defn unchecked-subtract
   "Returns the difference of x and y, both long.
   Note - uses a primitive operator subject to overflow."
-  {:inline (fn [x y] `(. clojure.lang.Numbers (unchecked_long_subtract ~x ~y)))
+  {:inline (fn [x y] `(. clojure.lang.Numbers (unchecked_minus ~x ~y)))
    :added "1.0"}
-  [x y] (. clojure.lang.Numbers (unchecked_long_subtract x y)))
+  [x y] (. clojure.lang.Numbers (unchecked_minus x y)))
 
 (defn unchecked-multiply-int
   "Returns the product of x and y, both int.
@@ -1122,12 +1158,12 @@
    :added "1.0"}
   [x y] (. clojure.lang.Numbers (unchecked_int_multiply x y)))
 
-(defn unchecked-multiply-long
+(defn unchecked-multiply
   "Returns the product of x and y, both long.
   Note - uses a primitive operator subject to overflow."
-  {:inline (fn [x y] `(. clojure.lang.Numbers (unchecked_long_multiply ~x ~y)))
+  {:inline (fn [x y] `(. clojure.lang.Numbers (unchecked_multiply ~x ~y)))
    :added "1.0"}
-  [x y] (. clojure.lang.Numbers (unchecked_long_multiply x y)))
+  [x y] (. clojure.lang.Numbers (unchecked_multiply x y)))
 
 (defn unchecked-divide-int
   "Returns the division of x by y, both int.
@@ -1136,26 +1172,12 @@
    :added "1.0"}
   [x y] (. clojure.lang.Numbers (unchecked_int_divide x y)))
 
-(defn unchecked-divide-long
-  "Returns the division of x by y, both long.
-  Note - uses a primitive operator subject to truncation."
-  {:inline (fn [x y] `(. clojure.lang.Numbers (unchecked_long_divide ~x ~y)))
-   :added "1.0"}
-  [x y] (. clojure.lang.Numbers (unchecked_long_divide x y)))
-
 (defn unchecked-remainder-int
   "Returns the remainder of division of x by y, both int.
   Note - uses a primitive operator subject to truncation."
   {:inline (fn [x y] `(. clojure.lang.Numbers (unchecked_int_remainder ~x ~y)))
    :added "1.0"}
   [x y] (. clojure.lang.Numbers (unchecked_int_remainder x y)))
-
-(defn unchecked-remainder-long
-  "Returns the remainder of division of x by y, both long.
-  Note - uses a primitive operator subject to truncation."
-  {:inline (fn [x y] `(. clojure.lang.Numbers (unchecked_long_remainder ~x ~y)))
-   :added "1.0"}
-  [x y] (. clojure.lang.Numbers (unchecked_long_remainder x y)))
 
 (defn pos?
   "Returns true if num is greater than zero, else false"
@@ -1174,14 +1196,16 @@
 (defn quot
   "quot[ient] of dividing numerator by denominator."
   {:added "1.0"
-   :static true}
+   :static true
+   :inline (fn [x y] `(. clojure.lang.Numbers (quotient ~x ~y)))}
   [num div]
     (. clojure.lang.Numbers (quotient num div)))
 
 (defn rem
   "remainder of dividing numerator by denominator."
   {:added "1.0"
-   :static true}
+   :static true
+   :inline (fn [x y] `(. clojure.lang.Numbers (remainder ~x ~y)))}
   [num div]
     (. clojure.lang.Numbers (remainder num div)))
 
@@ -1203,27 +1227,40 @@
 
 (defn bit-and
   "Bitwise and"
-   {:inline (fn [x y] `(. clojure.lang.Numbers (and ~x ~y)))
+   {:inline (nary-inline 'and)
+    :inline-arities >1?
     :added "1.0"}
-  [x y] (. clojure.lang.Numbers and x y))
+   ([x y] (. clojure.lang.Numbers and x y))
+   ([x y & more]
+      (reduce1 bit-and (bit-and x y) more)))
 
 (defn bit-or
   "Bitwise or"
-  {:inline (fn [x y] `(. clojure.lang.Numbers (or ~x ~y)))
+  {:inline (nary-inline 'or)
+   :inline-arities >1?
    :added "1.0"}
-  [x y] (. clojure.lang.Numbers or x y))
+  ([x y] (. clojure.lang.Numbers or x y))
+  ([x y & more]
+    (reduce1 bit-or (bit-or x y) more)))
 
 (defn bit-xor
   "Bitwise exclusive or"
-  {:inline (fn [x y] `(. clojure.lang.Numbers (xor ~x ~y)))
+  {:inline (nary-inline 'xor)
+   :inline-arities >1?
    :added "1.0"}
-  [x y] (. clojure.lang.Numbers xor x y))
+  ([x y] (. clojure.lang.Numbers xor x y))
+  ([x y & more]
+    (reduce1 bit-xor (bit-xor x y) more)))
 
 (defn bit-and-not
   "Bitwise and with complement"
-  {:added "1.0"
+  {:inline (nary-inline 'andNot)
+   :inline-arities >1?
+   :added "1.0"
    :static true}
-  [x y] (. clojure.lang.Numbers andNot x y))
+  ([x y] (. clojure.lang.Numbers andNot x y))
+  ([x y & more]
+    (reduce1 bit-and-not (bit-and-not x y) more)))
 
 
 (defn bit-clear
@@ -1263,11 +1300,25 @@
    :added "1.0"}
   [x n] (. clojure.lang.Numbers shiftRight x n))
 
+(defn integer?
+  "Returns true if n is an integer"
+  {:added "1.0"
+   :static true}
+  [n]
+  (or (instance? Integer n)
+      (instance? Long n)
+      (instance? clojure.lang.BigInt n)
+      (instance? BigInteger n)
+      (instance? Short n)
+      (instance? Byte n)))
+
 (defn even?
   "Returns true if n is even, throws an exception if n is not an integer"
   {:added "1.0"
    :static true}
-  [n] (zero? (bit-and n 1)))
+   [n] (if (integer? n)
+        (zero? (bit-and (clojure.lang.RT/uncheckedLongCast n) 1))
+        (throw (IllegalArgumentException. (str "Argument must be an integer: " n)))))
 
 (defn odd?
   "Returns true if n is odd, throws an exception if n is not an integer"
@@ -1497,6 +1548,19 @@
               (list form x)))
   ([x form & more] `(->> (->> ~x ~form) ~@more)))
 
+(def map)
+
+(defn ^:private check-valid-options
+  "Throws an exception if the given option map contains keys not listed
+  as valid, else returns nil."
+  [options & valid-keys]
+  (when (seq (apply disj (apply hash-set (keys options)) valid-keys))
+    (throw
+      (IllegalArgumentException.
+        (apply str "Only these options are valid: "
+          (first valid-keys)
+          (map #(str ", " %) (rest valid-keys)))))))
+
 ;;multimethods
 (def global-hierarchy)
 
@@ -1536,6 +1600,7 @@
     (let [options   (apply hash-map options)
           default   (get options :default :default)
           hierarchy (get options :hierarchy #'global-hierarchy)]
+      (check-valid-options options :default :hierarchy)
       `(let [v# (def ~mm-name)]
          (when-not (and (.hasRoot v#) (instance? clojure.lang.MultiFn (deref v#)))
            (def ~(with-meta mm-name m)
@@ -1739,7 +1804,29 @@
   nil if no var with that name."
   {:added "1.0"
    :static true}
- [sym] (. clojure.lang.Var (find sym)))
+  [sym] (. clojure.lang.Var (find sym)))
+
+(defn binding-conveyor-fn
+  {:private true
+   :added "1.3"}
+  [f]
+  (let [frame (clojure.lang.Var/getThreadBindingFrame)]
+    (fn 
+      ([]
+         (clojure.lang.Var/resetThreadBindingFrame frame)
+         (f))
+      ([x]
+         (clojure.lang.Var/resetThreadBindingFrame frame)
+         (f x))
+      ([x y]
+         (clojure.lang.Var/resetThreadBindingFrame frame)
+         (f x y))
+      ([x y z]
+         (clojure.lang.Var/resetThreadBindingFrame frame)
+         (f x y z))
+      ([x y z & args] 
+         (clojure.lang.Var/resetThreadBindingFrame frame)
+         (apply f x y z args)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; Refs ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defn ^{:private true}
@@ -1795,7 +1882,7 @@
   {:added "1.0"
    :static true}
   [^clojure.lang.Agent a f & args]
-    (. a (dispatch f args false)))
+  (.dispatch a (binding [*agent* a] (binding-conveyor-fn f)) args false))
 
 (defn send-off
   "Dispatch a potentially blocking action to an agent. Returns the
@@ -1806,7 +1893,7 @@
   {:added "1.0"
    :static true}
   [^clojure.lang.Agent a f & args]
-    (. a (dispatch f args true)))
+  (.dispatch a (binding [*agent* a] (binding-conveyor-fn f)) args true))
 
 (defn release-pending-sends
   "Normally, actions sent directly or indirectly during another action
@@ -1976,15 +2063,20 @@
     r)))
 
 (defn deref
-  "Also reader macro: @ref/@agent/@var/@atom/@delay/@future. Within a transaction,
+  "Also reader macro: @ref/@agent/@var/@atom/@delay/@future/@promise. Within a transaction,
   returns the in-transaction-value of ref, else returns the
   most-recently-committed value of ref. When applied to a var, agent
   or atom, returns its current state. When applied to a delay, forces
   it if not already forced. When applied to a future, will block if
-  computation not complete"
+  computation not complete. When applied to a promise, will block
+  until a value is delivered.  The variant taking a timeout can be
+  used for blocking references (futures and promises), and will return
+  timeout-val if the timeout (in milliseconds) is reached before a
+  value is available. See also - realized?."
   {:added "1.0"
    :static true}
-  [^clojure.lang.IDeref ref] (.deref ref))
+  ([^clojure.lang.IDeref ref] (.deref ref))
+  ([^clojure.lang.IBlockingDeref ref timeout-ms timeout-val] (.deref ref timeout-ms timeout-val)))
 
 (defn atom
   "Creates and returns an Atom with an initial value of x and zero or
@@ -2318,7 +2410,7 @@
        (loop [~i 0]
          (when (< ~i n#)
            ~@body
-           (recur (unchecked-inc-long ~i)))))))
+           (recur (unchecked-inc ~i)))))))
 
 (defn map
   "Returns a lazy sequence consisting of the result of applying f to the
@@ -2690,7 +2782,7 @@
                            needrec (steppair 0)
                            subform (steppair 1)
                            recform-chunk 
-                             `(recur ~seq- ~chunk- ~count- (unchecked-inc-long ~i-))
+                             `(recur ~seq- ~chunk- ~count- (unchecked-inc ~i-))
                            steppair-chunk (step recform-chunk (nnext exprs))
                            subform-chunk (steppair-chunk 1)]
                        [true
@@ -2796,7 +2888,7 @@
        (loop [~i 0]
          (when (< ~i n#)
            ~@body
-           (recur (unchecked-inc-long ~i)))))))
+           (recur (unchecked-inc ~i)))))))
 
 #_(defn into
   "Returns a new coll consisting of to-coll with all of the items of
@@ -2960,7 +3052,7 @@
 
 (defn float
   "Coerce to float"
-  {:inline (fn  [x] `(. clojure.lang.RT (floatCast ~x)))
+  {:inline (fn  [x] `(. clojure.lang.RT (~(if *unchecked-math* 'uncheckedFloatCast 'floatCast) ~x)))
    :added "1.0"}
   [^Number x] (clojure.lang.RT/floatCast x))
 
@@ -2972,19 +3064,19 @@
 
 (defn short
   "Coerce to short"
-  {:inline (fn  [x] `(. clojure.lang.RT (shortCast ~x)))
+  {:inline (fn  [x] `(. clojure.lang.RT (~(if *unchecked-math* 'uncheckedShortCast 'shortCast) ~x)))
    :added "1.0"}
   [^Number x] (clojure.lang.RT/shortCast x))
 
 (defn byte
   "Coerce to byte"
-  {:inline (fn  [x] `(. clojure.lang.RT (byteCast ~x)))
+  {:inline (fn  [x] `(. clojure.lang.RT (~(if *unchecked-math* 'uncheckedByteCast 'byteCast) ~x)))
    :added "1.0"}
   [^Number x] (clojure.lang.RT/byteCast x))
 
 (defn char
   "Coerce to char"
-  {:inline (fn  [x] `(. clojure.lang.RT (charCast ~x)))
+  {:inline (fn  [x] `(. clojure.lang.RT (~(if *unchecked-math* 'uncheckedCharCast 'charCast) ~x)))
    :added "1.1"}
   [x] (. clojure.lang.RT (charCast x)))
 
@@ -2995,6 +3087,49 @@
    :added "1.0"}
   [x] (clojure.lang.RT/booleanCast x))
 
+(defn unchecked-byte
+  "Coerce to byte. Subject to rounding or truncation."
+  {:inline (fn  [x] `(. clojure.lang.RT (uncheckedByteCast ~x)))
+   :added "1.3"}
+  [^Number x] (clojure.lang.RT/uncheckedByteCast x))
+
+(defn unchecked-short
+  "Coerce to short. Subject to rounding or truncation."
+  {:inline (fn  [x] `(. clojure.lang.RT (uncheckedShortCast ~x)))
+   :added "1.3"}
+  [^Number x] (clojure.lang.RT/uncheckedShortCast x))
+
+(defn unchecked-char
+  "Coerce to char. Subject to rounding or truncation."
+  {:inline (fn  [x] `(. clojure.lang.RT (uncheckedCharCast ~x)))
+   :added "1.3"}
+  [x] (. clojure.lang.RT (uncheckedCharCast x)))
+
+(defn unchecked-int
+  "Coerce to int. Subject to rounding or truncation."
+  {:inline (fn  [x] `(. clojure.lang.RT (uncheckedIntCast ~x)))
+   :added "1.3"}
+  [^Number x] (clojure.lang.RT/uncheckedIntCast x))
+
+(defn unchecked-long
+  "Coerce to long. Subject to rounding or truncation."
+  {:inline (fn  [x] `(. clojure.lang.RT (uncheckedLongCast ~x)))
+   :added "1.3"}
+  [^Number x] (clojure.lang.RT/uncheckedLongCast x))
+
+(defn unchecked-float
+  "Coerce to float. Subject to rounding."
+  {:inline (fn  [x] `(. clojure.lang.RT (uncheckedFloatCast ~x)))
+   :added "1.3"}
+  [^Number x] (clojure.lang.RT/uncheckedFloatCast x))
+
+(defn unchecked-double
+  "Coerce to double. Subject to rounding."
+  {:inline (fn  [x] `(. clojure.lang.RT (uncheckedDoubleCast ~x)))
+   :added "1.3"}
+  [^Number x] (clojure.lang.RT/uncheckedDoubleCast x))
+
+
 (defn number?
   "Returns true if x is a Number"
   {:added "1.0"
@@ -3002,25 +3137,13 @@
   [x]
   (instance? Number x))
 
-(defn integer?
-  "Returns true if n is an integer"
-  {:added "1.0"
-   :static true}
-  [n]
-  (or (instance? Integer n)
-      (instance? Long n)
-      (instance? clojure.lang.BigInt n)
-      (instance? BigInteger n)
-      (instance? Short n)
-      (instance? Byte n)))
-
 (defn mod
   "Modulus of num and div. Truncates toward negative infinity."
   {:added "1.0"
    :static true}
   [num div] 
   (let [m (rem num div)] 
-    (if (or (zero? m) (pos? (* num div))) 
+    (if (or (zero? m) (= (pos? num) (pos? div)))
       m 
       (+ m div))))
 
@@ -3086,6 +3209,7 @@
    :static true}
   [x] (cond
        (instance? BigInteger x) x
+       (instance? clojure.lang.BigInt x) (.toBigInteger ^clojure.lang.BigInt x)
        (decimal? x) (.toBigInteger ^BigDecimal x)
        (ratio? x) (.bigIntegerValue ^clojure.lang.Ratio x)
        (number? x) (BigInteger/valueOf (long x))
@@ -3104,9 +3228,11 @@
        (number? x) (BigDecimal/valueOf (long x))
        :else (BigDecimal. x)))
 
-(def ^{:private true} print-initialized false)
+(def ^:dynamic ^{:private true} print-initialized false)
 
-(defmulti print-method (fn [x writer] (type x)))
+(defmulti print-method (fn [x writer]
+                         (let [t (get (meta x) :type)]
+                           (if (keyword? t) t (class x)))))
 (defmulti print-dup (fn [x writer] (class x)))
 
 (defn pr-on
@@ -3135,13 +3261,15 @@
      (recur (first more) nmore)
      (apply pr more))))
 
+(def ^:private ^String system-newline
+     (System/getProperty "line.separator"))
+
 (defn newline
-  "Writes a newline to the output stream that is the current value of
-  *out*"
+  "Writes a platform-specific newline to *out*"
   {:added "1.0"
    :static true}
   []
-    (. *out* (append \newline))
+    (. *out* (append system-newline))
     nil)
 
 (defn flush
@@ -3644,7 +3772,7 @@
   {:added "1.0"
    :static true}
   [alias namespace-sym]
-  (.addAlias *ns* alias (find-ns namespace-sym)))
+  (.addAlias *ns* alias (the-ns namespace-sym)))
 
 (defn ns-aliases
   "Returns a map of the aliases for the namespace."
@@ -3711,7 +3839,7 @@
      (vector? name-vals-vec) "a vector for its binding"
      (even? (count name-vals-vec)) "an even number of forms in binding vector")
   `(let [~@(interleave (take-nth 2 name-vals-vec)
-                       (repeat '(. clojure.lang.Var (create))))]
+                       (repeat '(.. clojure.lang.Var create setDynamic)))]
      (. clojure.lang.Var (pushThreadBindings (hash-map ~@name-vals-vec)))
      (try
       ~@body
@@ -3719,19 +3847,23 @@
 
 (defn ns-resolve
   "Returns the var or Class to which a symbol will be resolved in the
-  namespace, else nil.  Note that if the symbol is fully qualified,
-  the var/Class to which it resolves need not be present in the
-  namespace."
+  namespace (unless found in the environement), else nil.  Note that
+  if the symbol is fully qualified, the var/Class to which it resolves
+  need not be present in the namespace."
   {:added "1.0"
    :static true}
-  [ns sym]
-  (clojure.lang.Compiler/maybeResolveIn (the-ns ns) sym))
+  ([ns sym]
+    (ns-resolve ns nil sym))
+  ([ns env sym]
+    (when-not (contains? env sym)
+      (clojure.lang.Compiler/maybeResolveIn (the-ns ns) sym))))
 
 (defn resolve
-  "same as (ns-resolve *ns* symbol)"
+  "same as (ns-resolve *ns* symbol) or (ns-resolve *ns* &env symbol)"
   {:added "1.0"
    :static true}
-  [sym] (ns-resolve *ns* sym))
+  ([sym] (ns-resolve *ns* sym))
+  ([env sym] (ns-resolve *ns* env sym)))
 
 (defn array-map
   "Constructs an array-map."
@@ -3810,10 +3942,12 @@
       (reduce1 process-entry [] bents))))
 
 (defmacro let
-  "Evaluates the exprs in a lexical context in which the symbols in
+  "binding => binding-form init-expr
+
+  Evaluates the exprs in a lexical context in which the symbols in
   the binding-forms are bound to their respective init-exprs or parts
   therein."
-  {:added "1.0"}
+  {:added "1.0", :special-form true, :forms '[(let [bindings*] exprs*)]}
   [bindings & body]
   (assert-args let
      (vector? bindings) "a vector for its binding"
@@ -3840,16 +3974,14 @@
 
 ;redefine fn with destructuring and pre/post conditions
 (defmacro fn
-  "(fn name? [params* ] exprs*)
-  (fn name? ([params* ] exprs*)+)
-
-  params => positional-params* , or positional-params* & next-param
+  "params => positional-params* , or positional-params* & next-param
   positional-param => binding-form
   next-param => binding-form
   name => symbol
 
   Defines a function"
-  {:added "1.0"}
+  {:added "1.0", :special-form true,
+   :forms '[(fn name? [params* ] exprs*) (fn name? ([params* ] exprs*)+)]}
   [& sigs]
     (let [name (if (symbol? (first sigs)) (first sigs) nil)
           sigs (if name (next sigs) sigs)
@@ -3885,7 +4017,7 @@
   "Evaluates the exprs in a lexical context in which the symbols in
   the binding-forms are bound to their respective init-exprs or parts
   therein. Acts as a recur target."
-  {:added "1.0"}
+  {:added "1.0", :special-form true, :forms '[(loop [bindings*] exprs*)]}
   [bindings & body]
     (assert-args loop
       (vector? bindings) "a vector for its binding"
@@ -3989,12 +4121,12 @@
                                           (= k :when) `(if ~v
                                                          ~(do-cmod etc)
                                                          (recur
-                                                           (unchecked-inc-long ~gi)))
+                                                           (unchecked-inc ~gi)))
                                           (keyword? k)
                                             (err "Invalid 'for' keyword " k)
                                           :else
                                             `(do (chunk-append ~gb ~body-expr)
-                                                 (recur (unchecked-inc-long ~gi)))))]
+                                                 (recur (unchecked-inc ~gi)))))]
                           `(fn ~giter [~gxs]
                              (lazy-seq
                                (loop [~gxs ~gxs]
@@ -4080,12 +4212,16 @@
 
 (defmacro assert
   "Evaluates expr and throws an exception if it does not evaluate to
- logical true."
+  logical true."
   {:added "1.0"}
-  [x]
-  (when *assert*
-    `(when-not ~x
-       (throw (new AssertionError (str "Assert failed: " (pr-str '~x)))))))
+  ([x]
+     (when *assert*
+       `(when-not ~x
+          (throw (new AssertionError (str "Assert failed: " (pr-str '~x)))))))
+  ([x message]
+     (when *assert*
+       `(when-not ~x
+          (throw (new AssertionError (str "Assert failed: " ~message "\n" (pr-str '~x))))))))
 
 (defn test
   "test [v] finds fn at key :test in var metadata and calls it,
@@ -4189,75 +4325,7 @@
   [name & decls]
     (list* `defn (with-meta name (assoc (meta name) :private true)) decls))
 
-(defn print-doc [v]
-  (println "-------------------------")
-  (println (str (ns-name (:ns (meta v))) "/" (:name (meta v))))
-  (prn (:arglists (meta v)))
-  (when (:macro (meta v))
-    (println "Macro"))
-  (println " " (:doc (meta v))))
-
-(defn find-doc
-  "Prints documentation for any var whose documentation or name
- contains a match for re-string-or-pattern"
-  {:added "1.0"}
-  [re-string-or-pattern]
-    (let [re  (re-pattern re-string-or-pattern)]
-      (doseq [ns (all-ns)
-              v (sort-by (comp :name meta) (vals (ns-interns ns)))
-              :when (and (:doc (meta v))
-                         (or (re-find (re-matcher re (:doc (meta v))))
-                             (re-find (re-matcher re (str (:name (meta v)))))))]
-               (print-doc v))))
-
-(defn special-form-anchor
-  "Returns the anchor tag on http://clojure.org/special_forms for the
-  special form x, or nil"
-  {:added "1.0"
-   :static true}
-  [x]
-  (#{'. 'def 'do 'fn 'if 'let 'loop 'monitor-enter 'monitor-exit 'new
-  'quote 'recur 'set! 'throw 'try 'var} x))
-
-(defn syntax-symbol-anchor
-  "Returns the anchor tag on http://clojure.org/special_forms for the
-  special form that uses syntax symbol x, or nil"
-  {:added "1.0"
-   :static true}
-  [x]
-  ({'& 'fn 'catch 'try 'finally 'try} x))
-
-(defn print-special-doc
-  [name type anchor]
-  (println "-------------------------")
-  (println name)
-  (println type)
-  (println (str "  Please see http://clojure.org/special_forms#" anchor)))
-
-(defn print-namespace-doc
-  "Print the documentation string of a Namespace."
-  {:added "1.0"}
-  [nspace]
-  (println "-------------------------")
-  (println (str (ns-name nspace)))
-  (println " " (:doc (meta nspace))))
-
-(defmacro doc
-  "Prints documentation for a var or special form given its name"
-  {:added "1.0"}
-  [name]
-  (cond
-   (special-form-anchor `~name)
-   `(print-special-doc '~name "Special Form" (special-form-anchor '~name))
-   (syntax-symbol-anchor `~name)
-   `(print-special-doc '~name "Syntax Symbol" (syntax-symbol-anchor '~name))
-   :else
-    (let [nspace (find-ns name)]
-      (if nspace
-        `(print-namespace-doc ~nspace)
-        `(print-doc (var ~name))))))
-
- (defn tree-seq
+(defn tree-seq
   "Returns a lazy sequence of the nodes in a tree, via a depth-first walk.
    branch? must be a fn of one arg that returns true if passed a node
    that can have children (but may not).  children must be a fn of one
@@ -4499,7 +4567,7 @@
        (if (< ~idx  (alength a#))
          (do
            (aset ~ret ~idx ~expr)
-           (recur (unchecked-inc-long ~idx)))
+           (recur (unchecked-inc ~idx)))
          ~ret))))
 
 (defmacro areduce
@@ -4511,7 +4579,7 @@
   `(let [a# ~a]
      (loop  [~idx 0 ~ret ~init]
        (if (< ~idx  (alength a#))
-         (recur (unchecked-inc-long ~idx) ~expr)
+         (recur (unchecked-inc ~idx) ~expr)
          ~ret))))
 
 (defn float-array
@@ -5055,17 +5123,17 @@
 
 ;;;;;;;;;;; require/use/load, contributed by Stephen C. Gilardi ;;;;;;;;;;;;;;;;;;
 
-(defonce
+(defonce ^:dynamic
   ^{:private true
      :doc "A ref to a sorted set of symbols representing loaded libs"}
   *loaded-libs* (ref (sorted-set)))
 
-(defonce
+(defonce ^:dynamic
   ^{:private true
-     :doc "the set of paths currently being loaded by this thread"}
-  *pending-paths* #{})
+     :doc "A stack of paths currently being loaded by this thread"}
+  *pending-paths* ())
 
-(defonce
+(defonce ^:dynamic
   ^{:private true :doc
      "True while a verbose load is pending"}
   *loading-verbosely* false)
@@ -5197,8 +5265,20 @@
           (doseq [arg args]
             (apply load-lib prefix (prependss arg opts))))))))
 
-;; Public
+(defn- check-cyclic-dependency
+  "Detects and rejects non-trivial cyclic load dependencies. The
+  exception message shows the dependency chain with the cycle
+  highlighted. Ignores the trivial case of a file attempting to load
+  itself because that can occur when a gen-class'd class loads its
+  implementation."
+  [path]
+  (when (some #{path} (rest *pending-paths*))
+    (let [pending (map #(if (= % path) (str "[ " % " ]") %)
+                       (cons path *pending-paths*))
+          chain (apply str (interpose "->" pending))]
+      (throw (Exception. (str "Cyclic load dependency: " chain))))))
 
+;; Public
 
 (defn require
   "Loads libs, skipping any that are already loaded. Each argument is
@@ -5291,12 +5371,10 @@
       (when *loading-verbosely*
         (printf "(clojure.core/load \"%s\")\n" path)
         (flush))
-;      (throw-if (*pending-paths* path)
-;                "cannot load '%s' again while it is loading"
-;                path)
-      (when-not (*pending-paths* path)
+      (check-cyclic-dependency path)
+      (when-not (= path (first *pending-paths*))
         (binding [*pending-paths* (conj *pending-paths* path)]
-          (clojure.lang.RT/load  (.substring path 1)))))))
+          (clojure.lang.RT/load (.substring path 1)))))))
 
 (defn compile
   "Compiles the namespace named by the symbol lib into a set of
@@ -5425,22 +5503,22 @@
    :static true}
   [coll] (instance? clojure.lang.Reversible coll))
 
-(def
+(def ^:dynamic
  ^{:doc "bound in a repl thread to the most recent value printed"
    :added "1.0"}
  *1)
 
-(def
+(def ^:dynamic
  ^{:doc "bound in a repl thread to the second most recent value printed"
    :added "1.0"}
  *2)
 
-(def
+(def ^:dynamic
  ^{:doc "bound in a repl thread to the third most recent value printed"
    :added "1.0"}
  *3)
 
-(def
+(def ^:dynamic
  ^{:doc "bound in a repl thread to the most recent exception caught by the repl"
    :added "1.0"}
  *e)
@@ -5586,6 +5664,11 @@
   "Set to true when compiling files, false otherwise."
   {:added "1.0"})
 
+(add-doc-and-meta *unchecked-math*
+  "While bound to true, compilations of +, -, *, inc, dec and the
+  coercions will be done without overflow checks. Default: false."
+  {:added "1.3"})
+
 (add-doc-and-meta *ns*
   "A clojure.lang.Namespace object representing the current namespace."
   {:added "1.0"})
@@ -5599,7 +5682,7 @@
 (add-doc-and-meta *out*
   "A java.io.Writer object representing standard output for print operations.
 
-  Defaults to System/out"
+  Defaults to System/out, wrapped in an OutputStreamWriter"
   {:added "1.0"})
 
 (add-doc-and-meta *err*
@@ -5657,36 +5740,157 @@
 
 
 (defmacro letfn 
-  "Takes a vector of function specs and a body, and generates a set of
-  bindings of functions to their names. All of the names are available
-  in all of the definitions of the functions, as well as the body.
+  "fnspec ==> (fname [params*] exprs) or (fname ([params*] exprs)+)
 
-  fnspec ==> (fname [params*] exprs) or (fname ([params*] exprs)+)"
-  {:added "1.0"}
+  Takes a vector of function specs and a body, and generates a set of
+  bindings of functions to their names. All of the names are available
+  in all of the definitions of the functions, as well as the body."
+  {:added "1.0", :forms '[(letfn [fnspecs*] exprs*)],
+   :special-form true, :url nil}
   [fnspecs & body] 
   `(letfn* ~(vec (interleave (map first fnspecs) 
                              (map #(cons `fn %) fnspecs)))
            ~@body))
+
+(defn fnil
+  "Takes a function f, and returns a function that calls f, replacing
+  a nil first argument to f with the supplied value x. Higher arity
+  versions can replace arguments in the second and third
+  positions (y, z). Note that the function f can take any number of
+  arguments, not just the one(s) being nil-patched."
+  {:added "1.2"
+   :static true}
+  ([f x]
+   (fn
+     ([a] (f (if (nil? a) x a)))
+     ([a b] (f (if (nil? a) x a) b))
+     ([a b c] (f (if (nil? a) x a) b c))
+     ([a b c & ds] (apply f (if (nil? a) x a) b c ds))))
+  ([f x y]
+   (fn
+     ([a b] (f (if (nil? a) x a) (if (nil? b) y b)))
+     ([a b c] (f (if (nil? a) x a) (if (nil? b) y b) c))
+     ([a b c & ds] (apply f (if (nil? a) x a) (if (nil? b) y b) c ds))))
+  ([f x y z]
+   (fn
+     ([a b] (f (if (nil? a) x a) (if (nil? b) y b)))
+     ([a b c] (f (if (nil? a) x a) (if (nil? b) y b) (if (nil? c) z c)))
+     ([a b c & ds] (apply f (if (nil? a) x a) (if (nil? b) y b) (if (nil? c) z c) ds)))))
 
 
 ;;;;;;; case ;;;;;;;;;;;;;
 (defn- shift-mask [shift mask x]
   (-> x (bit-shift-right shift) (bit-and mask)))
 
-(defn- min-hash 
-  "takes a collection of keys and returns [shift mask]"
-  [keys]
-  (let [hashes (map hash keys)
-        cnt (count keys)]
-    (when-not (apply distinct? hashes)
-      (throw (IllegalArgumentException. "Hashes must be distinct")))
-    (or (first 
-         (filter (fn [[s m]]
-                   (apply distinct? (map #(shift-mask s m %) hashes)))
-                 (for [mask (map #(dec (bit-shift-left 1 %)) (range 1 14))
-                       shift (range 0 31)]
-                   [shift mask])))
-        (throw (IllegalArgumentException. "No distinct mapping found")))))
+(def ^:private max-mask-bits 13)
+(def ^:private max-switch-table-size (bit-shift-left 1 max-mask-bits))
+
+(defn- maybe-min-hash
+  "takes a collection of hashes and returns [shift mask] or nil if none found"
+  [hashes]
+  (first
+    (filter (fn [[s m]]
+              (apply distinct? (map #(shift-mask s m %) hashes)))
+            (for [mask (map #(dec (bit-shift-left 1 %)) (range 1 (inc max-mask-bits)))
+                  shift (range 0 31)]
+              [shift mask]))))
+
+(defn- case-map
+  "Transforms a sequence of test constants and a corresponding sequence of then
+  expressions into a sorted map to be consumed by case*. The form of the map
+  entries are {(case-f test) [(test-f test) then]}."
+  [case-f test-f tests thens]
+  (into1 (sorted-map)
+    (zipmap (map case-f tests)
+            (map vector
+              (map test-f tests)
+              thens))))
+
+(defn- fits-table?
+  "Returns true if the collection of ints can fit within the
+  max-table-switch-size, false otherwise."
+  [ints]
+  (< (- (apply max (seq ints)) (apply min (seq ints))) max-switch-table-size))
+
+(defn- prep-ints
+  "Takes a sequence of int-sized test constants and a corresponding sequence of
+  then expressions. Returns a tuple of [shift mask case-map switch-type] where
+  case-map is a map of int case values to [test then] tuples, and switch-type
+  is either :sparse or :compact."
+  [tests thens]
+  (if (fits-table? tests)
+    ; compact case ints, no shift-mask
+    [0 0 (case-map int int tests thens) :compact]
+    (let [[shift mask] (or (maybe-min-hash (map int tests)) [0 0])]
+      (if (zero? mask)
+        ; sparse case ints, no shift-mask
+        [0 0 (case-map int int tests thens) :sparse]
+        ; compact case ints, with shift-mask
+        [shift mask (case-map #(shift-mask shift mask (int %)) int tests thens) :compact]))))
+
+(defn- merge-hash-collisions
+  "Takes a case expression, default expression, and a sequence of test constants
+  and a corresponding sequence of then expressions. Returns a tuple of
+  [tests thens skip-check-set] where no tests have the same hash. Each set of
+  input test constants with the same hash is replaced with a single test
+  constant (the case int), and their respective thens are combined into:
+  (condp = expr
+    test-1 then-1
+    ...
+    test-n then-n
+    default).
+  The skip-check is a set of case ints for which post-switch equivalence
+  checking must not be done (the cases holding the above condp thens)."
+  [expr-sym default tests thens]
+  (let [buckets (loop [m {} ks tests vs thens]
+                  (if (and ks vs)
+                    (recur
+                      (update-in m [(hash (first ks))] (fnil conj []) [(first ks) (first vs)])
+                      (next ks) (next vs))
+                    m))
+        assoc-multi (fn [m h bucket]
+                      (let [testexprs (apply concat bucket)
+                            expr `(condp = ~expr-sym ~@testexprs ~default)]
+                        (assoc m h expr)))
+        hmap (reduce1
+               (fn [m [h bucket]]
+                 (if (== 1 (count bucket))
+                   (assoc m (ffirst bucket) (second (first bucket)))
+                   (assoc-multi m h bucket)))
+               {} buckets)
+        skip-check (->> buckets
+                     (filter #(< 1 (count (second %))))
+                     (map first)
+                     (into1 #{}))]
+    [(keys hmap) (vals hmap) skip-check]))
+
+(defn- prep-hashes
+  "Takes a sequence of test constants and a corresponding sequence of then
+  expressions. Returns a tuple of [shift mask case-map switch-type skip-check]
+  where case-map is a map of int case values to [test then] tuples, switch-type
+  is either :sparse or :compact, and skip-check is a set of case ints for which
+  post-switch equivalence checking must not be done (occurs with hash
+  collisions)."
+  [expr-sym default tests thens]
+  (let [hashes (into1 #{} (map hash tests))]
+    (if (== (count tests) (count hashes))
+      (if (fits-table? hashes)
+        ; compact case ints, no shift-mask
+        [0 0 (case-map hash identity tests thens) :compact]
+        (let [[shift mask] (or (maybe-min-hash hashes) [0 0])]
+          (if (zero? mask)
+            ; sparse case ints, no shift-mask
+            [0 0 (case-map hash identity tests thens) :sparse]
+            ; compact case ints, with shift-mask
+            [shift mask (case-map #(shift-mask shift mask (hash %)) identity tests thens) :compact])))
+      ; resolve hash collisions and try again
+      (let [[tests thens skip-check] (merge-hash-collisions expr-sym default tests thens)
+            [shift mask case-map switch-type] (prep-hashes expr-sym default tests thens)
+            skip-check (if (zero? mask)
+                         skip-check
+                         (into1 #{} (map #(shift-mask shift mask %) skip-check)))]
+        [shift mask case-map switch-type skip-check]))))
+
 
 (defmacro case 
   "Takes an expression, and a set of clauses.
@@ -5717,24 +5921,40 @@
   (let [ge (with-meta (gensym) {:tag Object})
         default (if (odd? (count clauses)) 
                   (last clauses)
-                  `(throw (IllegalArgumentException. (str "No matching clause: " ~ge))))
-        cases (partition 2 clauses)
-        case-map (reduce1 (fn [m [test expr]]
-                           (if (seq? test)
-                             (into1 m (zipmap test (repeat expr)))
-                             (assoc m test expr))) 
-                           {} cases)
-        [shift mask] (if (seq case-map) (min-hash (keys case-map)) [0 0])
-        
-        hmap (reduce1 (fn [m [test expr :as te]]
-                       (assoc m (shift-mask shift mask (hash test)) te))
-                     (sorted-map) case-map)]
-    `(let [~ge ~e]
-       ~(condp = (count clauses)
-          0 default
-          1 default
-          `(case* ~ge ~shift ~mask ~(key (first hmap)) ~(key (last hmap)) ~default ~hmap 
-                        ~(every? keyword? (keys case-map)))))))
+                  `(throw (IllegalArgumentException. (str "No matching clause: " ~ge))))]
+    (if (> 2 (count clauses))
+      `(let [~ge ~e] ~default)
+      (let [pairs (partition 2 clauses)
+            assoc-test (fn assoc-test [m test expr]
+                         (if (contains? m test)
+                           (throw (IllegalArgumentException. (str "Duplicate case test constant: " test)))
+                           (assoc m test expr)))
+            pairs (reduce1
+                       (fn [m [test expr]]
+                         (if (seq? test)
+                           (reduce1 #(assoc-test %1 %2 expr) m test)
+                           (assoc-test m test expr)))
+                       {} pairs)
+            tests (keys pairs)
+            thens (vals pairs)
+            mode (cond
+                   (every? #(and (integer? %) (<= Integer/MIN_VALUE % Integer/MAX_VALUE)) tests)
+                   :ints
+                   (every? keyword? tests)
+                   :identity
+                   :else :hashes)]
+        (condp = mode
+          :ints
+          (let [[shift mask imap switch-type] (prep-ints tests thens)]
+            `(let [~ge ~e] (case* ~ge ~shift ~mask ~default ~imap ~switch-type :int)))
+          :hashes
+          (let [[shift mask imap switch-type skip-check] (prep-hashes ge default tests thens)]
+            `(let [~ge ~e] (case* ~ge ~shift ~mask ~default ~imap ~switch-type :hash-equiv ~skip-check)))
+          :identity
+          (let [[shift mask imap switch-type skip-check] (prep-hashes ge default tests thens)]
+            `(let [~ge ~e] (case* ~ge ~shift ~mask ~default ~imap ~switch-type :hash-identity ~skip-check))))))))
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; helper files ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (alter-meta! (find-ns 'clojure.core) assoc :doc "Fundamental library of the Clojure language")
@@ -5786,8 +6006,8 @@
     opts))
 
 (defn slurp
-  "Reads the file named by f using the encoding enc into a string
-  and returns it."
+  "Opens a reader on f and reads all its contents, returning a string.
+  See clojure.java.io/reader for a complete list of supported arguments."
   {:added "1.0"}
   ([f & opts]
      (let [opts (normalize-slurp-opts opts)
@@ -5813,14 +6033,24 @@
   "Takes a function of no args and yields a future object that will
   invoke the function in another thread, and will cache the result and
   return it on all subsequent calls to deref/@. If the computation has
-  not yet finished, calls to deref/@ will block."
+  not yet finished, calls to deref/@ will block, unless the variant
+  of deref with timeout is used. See also - realized?."
   {:added "1.1"
    :static true}
-  [^Callable f]
-  (let [fut (.submit clojure.lang.Agent/soloExecutor f)]
+  [f]
+  (let [f (binding-conveyor-fn f)
+        fut (.submit clojure.lang.Agent/soloExecutor ^Callable f)]
     (reify 
      clojure.lang.IDeref 
-      (deref [_] (.get fut))
+     (deref [_] (.get fut))
+     clojure.lang.IBlockingDeref
+     (deref
+      [_ timeout-ms timeout-val]
+      (try (.get fut timeout-ms java.util.concurrent.TimeUnit/MILLISECONDS)
+           (catch java.util.concurrent.TimeoutException e
+             timeout-val)))
+     clojure.lang.IPending
+     (isRealized [_] (.isDone fut))
      java.util.concurrent.Future
       (get [_] (.get fut))
       (get [_ timeout unit] (.get fut timeout unit))
@@ -5832,7 +6062,8 @@
   "Takes a body of expressions and yields a future object that will
   invoke the body in another thread, and will cache the result and
   return it on all subsequent calls to deref/@. If the computation has
-  not yet finished, calls to deref/@ will block."
+  not yet finished, calls to deref/@ will block, unless the variant of
+  deref with timeout is used. See also - realized?."
   {:added "1.1"}
   [& body] `(future-call (^{:once true} fn* [] ~@body)))
 
@@ -5892,26 +6123,32 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; clojure version number ;;;;;;;;;;;;;;;;;;;;;;
 
-(let [version-stream (.getResourceAsStream (clojure.lang.RT/baseLoader) 
-                                           "clojure/version.properties")
-      properties     (doto (new java.util.Properties) (.load version-stream))
-      prop (fn [k] (.getProperty properties (str "clojure.version." k)))
-      clojure-version {:major       (Integer/valueOf ^String (prop "major"))
-                       :minor       (Integer/valueOf ^String (prop "minor"))
-                       :incremental (Integer/valueOf ^String (prop "incremental"))
-                       :qualifier   (prop "qualifier")}]
-  (def *clojure-version* 
-    (if (not (= (prop "interim") "false"))
+(let [properties (with-open [version-stream (.getResourceAsStream
+                                             (clojure.lang.RT/baseLoader)
+                                             "clojure/version.properties")]
+                   (doto (new java.util.Properties)
+                     (.load version-stream)))
+      version-string (.getProperty properties "version")
+      [_ major minor incremental qualifier snapshot]
+      (re-matches
+       #"(\d+)\.(\d+)\.(\d+)(?:-([a-zA-Z0-9_]+))?(?:-(SNAPSHOT))?"
+       version-string)
+      clojure-version {:major       (Integer/valueOf ^String major)
+                       :minor       (Integer/valueOf ^String minor)
+                       :incremental (Integer/valueOf ^String incremental)
+                       :qualifier   (if (= qualifier "SNAPSHOT") nil qualifier)}]
+  (def ^:dynamic *clojure-version*
+    (if (.contains version-string "SNAPSHOT")
       (clojure.lang.RT/assoc clojure-version :interim true)
       clojure-version)))
-      
+
 (add-doc-and-meta *clojure-version*
   "The version info for Clojure core, as a map containing :major :minor 
   :incremental and :qualifier keys. Feature releases may increment 
   :minor and/or :major, bugfix releases will increment :incremental. 
   Possible values of :qualifier include \"GA\", \"SNAPSHOT\", \"RC-x\" \"BETA-x\""
   {:added "1.0"})
-      
+
 (defn
   clojure-version 
   "Returns clojure version as a printable string."
@@ -5931,24 +6168,33 @@
   "Alpha - subject to change.
   Returns a promise object that can be read with deref/@, and set,
   once only, with deliver. Calls to deref/@ prior to delivery will
-  block. All subsequent derefs will return the same delivered value
-  without blocking."
+  block, unless the variant of deref with timeout is used. All
+  subsequent derefs will return the same delivered value without
+  blocking. See also - realized?."
   {:added "1.1"
    :static true}
   []
   (let [d (java.util.concurrent.CountDownLatch. 1)
-        v (atom nil)]
+        v (atom d)]
     (reify 
      clojure.lang.IDeref
-      (deref [_] (.await d) @v)
+       (deref [_] (.await d) @v)
+     clojure.lang.IBlockingDeref
+       (deref
+        [_ timeout-ms timeout-val]
+        (if (.await d timeout-ms java.util.concurrent.TimeUnit/MILLISECONDS)
+          @v
+          timeout-val))  
+     clojure.lang.IPending
+      (isRealized [this]
+       (zero? (.getCount d)))
      clojure.lang.IFn
-      (invoke [this x]
-        (locking d
-          (if (pos? (.getCount d))
-            (do (reset! v x)
-                (.countDown d)
-                this)
-            (throw (IllegalStateException. "Multiple deliver calls to a promise"))))))))
+     (invoke
+      [this x]
+      (when (and (pos? (.getCount d))
+                 (compare-and-set! v d x))
+        (.countDown d)
+        this)))))
 
 (defn deliver
   "Alpha - subject to change.
@@ -5984,7 +6230,7 @@
         (assoc! ret k (conj (get ret k []) x))))
     (transient {}) coll)))
 
-(defn partition-by 
+(defn partition-by
   "Applies f to each value in coll, splitting it each time f returns
    a new value.  Returns a lazy seq of partitions."
   {:added "1.2"
@@ -5994,8 +6240,8 @@
    (when-let [s (seq coll)]
      (let [fst (first s)
            fv (f fst)
-           run (cons fst (take-while #(= fv (f %)) (rest s)))]
-       (cons run (partition-by f (drop (count run) s)))))))
+           run (cons fst (take-while #(= fv (f %)) (next s)))]
+       (cons run (partition-by f (seq (drop (count run) s))))))))
 
 (defn frequencies
   "Returns a map from distinct items in coll to the number of times
@@ -6122,33 +6368,128 @@
                         (cons x (keepi (inc idx) (rest s)))))))))]
        (keepi 0 coll))))
 
-(defn fnil
-  "Takes a function f, and returns a function that calls f, replacing
-  a nil first argument to f with the supplied value x. Higher arity
-  versions can replace arguments in the second and third
-  positions (y, z). Note that the function f can take any number of
-  arguments, not just the one(s) being nil-patched."
-  {:added "1.2"
-   :static true}
-  ([f x]
-   (fn
-     ([a] (f (if (nil? a) x a)))
-     ([a b] (f (if (nil? a) x a) b))
-     ([a b c] (f (if (nil? a) x a) b c))
-     ([a b c & ds] (apply f (if (nil? a) x a) b c ds))))
-  ([f x y]
-   (fn
-     ([a b] (f (if (nil? a) x a) (if (nil? b) y b)))
-     ([a b c] (f (if (nil? a) x a) (if (nil? b) y b) c))
-     ([a b c & ds] (apply f (if (nil? a) x a) (if (nil? b) y b) c ds))))
-  ([f x y z]
-   (fn
-     ([a b] (f (if (nil? a) x a) (if (nil? b) y b)))
-     ([a b c] (f (if (nil? a) x a) (if (nil? b) y b) (if (nil? c) z c)))
-     ([a b c & ds] (apply f (if (nil? a) x a) (if (nil? b) y b) (if (nil? c) z c) ds)))))
+(defn every-pred
+  "Takes a set of predicates and returns a function f that returns true if all of its
+  composing predicates return a logical true value against all of its arguments, else it returns
+  false. Note that f is short-circuiting in that it will stop execution on the first
+  argument that triggers a logical false result against the original predicates."
+  {:added "1.3"}
+  ([p]
+     (fn ep1
+       ([] true)
+       ([x] (boolean (p x)))
+       ([x y] (boolean (and (p x) (p y))))
+       ([x y z] (boolean (and (p x) (p y) (p z))))
+       ([x y z & args] (boolean (and (ep1 x y z)
+                                     (every? p args))))))
+  ([p1 p2]
+     (fn ep2
+       ([] true)
+       ([x] (boolean (and (p1 x) (p2 x))))
+       ([x y] (boolean (and (p1 x) (p1 y) (p2 x) (p2 y))))
+       ([x y z] (boolean (and (p1 x) (p1 y) (p1 z) (p2 x) (p2 y) (p2 z))))
+       ([x y z & args] (boolean (and (ep2 x y z)
+                                     (every? #(and (p1 %) (p2 %)) args))))))
+  ([p1 p2 p3]
+     (fn ep3
+       ([] true)
+       ([x] (boolean (and (p1 x) (p2 x) (p3 x))))
+       ([x y] (boolean (and (p1 x) (p2 x) (p3 x) (p1 y) (p2 y) (p3 y))))
+       ([x y z] (boolean (and (p1 x) (p2 x) (p3 x) (p1 y) (p2 y) (p3 y) (p1 z) (p2 z) (p3 z))))
+       ([x y z & args] (boolean (and (ep3 x y z)
+                                     (every? #(and (p1 %) (p2 %) (p3 %)) args))))))
+  ([p1 p2 p3 & ps]
+     (let [ps (list* p1 p2 p3 ps)]
+       (fn epn
+         ([] true)
+         ([x] (every? #(% x) ps))
+         ([x y] (every? #(and (% x) (% y)) ps))
+         ([x y z] (every? #(and (% x) (% y) (% z)) ps))
+         ([x y z & args] (boolean (and (epn x y z)
+                                       (every? #(every? % args) ps))))))))
+
+(defn some-fn
+  "Takes a set of predicates and returns a function f that returns the first logical true value
+  returned by one of its composing predicates against any of its arguments, else it returns
+  logical false. Note that f is short-circuiting in that it will stop execution on the first
+  argument that triggers a logical true result against the original predicates."
+  {:added "1.3"}
+  ([p]
+     (fn sp1
+       ([] nil)
+       ([x] (p x))
+       ([x y] (or (p x) (p y)))
+       ([x y z] (or (p x) (p y) (p z)))
+       ([x y z & args] (or (sp1 x y z)
+                           (some p args)))))
+  ([p1 p2]
+     (fn sp2
+       ([] nil)
+       ([x] (or (p1 x) (p2 x)))
+       ([x y] (or (p1 x) (p1 y) (p2 x) (p2 y)))
+       ([x y z] (or (p1 x) (p1 y) (p1 z) (p2 x) (p2 y) (p2 z)))
+       ([x y z & args] (or (sp2 x y z)
+                           (some #(or (p1 %) (p2 %)) args)))))
+  ([p1 p2 p3]
+     (fn sp3
+       ([] nil)
+       ([x] (or (p1 x) (p2 x) (p3 x)))
+       ([x y] (or (p1 x) (p2 x) (p3 x) (p1 y) (p2 y) (p3 y)))
+       ([x y z] (or (p1 x) (p2 x) (p3 x) (p1 y) (p2 y) (p3 y) (p1 z) (p2 z) (p3 z)))
+       ([x y z & args] (or (sp3 x y z)
+                           (some #(or (p1 %) (p2 %) (p3 %)) args)))))
+  ([p1 p2 p3 & ps]
+     (let [ps (list* p1 p2 p3 ps)]
+       (fn spn
+         ([] nil)
+         ([x] (some #(% x) ps))
+         ([x y] (some #(or (% x) (% y)) ps))
+         ([x y z] (some #(or (% x) (% y) (% z)) ps))
+         ([x y z & args] (or (spn x y z)
+                             (some #(some % args) ps)))))))
 
 (defn- ^{:dynamic true} assert-valid-fdecl
   "A good fdecl looks like (([a] ...) ([a b] ...)) near the end of defn."
   [fdecl]
   (if-let [bad-args (seq (remove #(vector? %) (map first fdecl)))]
     (throw (IllegalArgumentException. (str "Parameter declaration " (first bad-args) " should be a vector")))))
+
+(defn with-redefs-fn
+  "Temporarily redefines Vars during a call to func.  Each val of
+  binding-map will replace the root value of its key which must be
+  a Var.  After func is called with no args, the root values of all
+  the Vars will be set back to their old values.  These temporary
+  changes will be visible in all threads.  Useful for mocking out
+  functions during testing."
+  {:added "1.3"}
+  [binding-map func]
+  (let [root-bind (fn [m]
+                    (doseq [[a-var a-val] m]
+                      (.bindRoot ^clojure.lang.Var a-var a-val)))
+        old-vals (zipmap (keys binding-map)
+                         (map deref (keys binding-map)))]
+    (try
+      (root-bind binding-map)
+      (func)
+      (finally
+        (root-bind old-vals)))))
+
+(defmacro with-redefs
+  "binding => var-symbol temp-value-expr
+
+  Temporarily redefines Vars while executing the body.  The
+  temp-value-exprs will be evaluated and each resulting value will
+  replace in parallel the root value of its Var.  After the body is
+  executed, the root values of all the Vars will be set back to their
+  old values.  These temporary changes will be visible in all threads.
+  Useful for mocking out functions during testing."
+  {:added "1.3"}
+  [bindings & body]
+  `(with-redefs-fn ~(zipmap (map #(list `var %) (take-nth 2 bindings))
+                            (take-nth 2 (next bindings)))
+                    (fn [] ~@body)))
+
+(defn realized?
+  "Returns true if a value has been produced for a promise, delay, future or lazy sequence."
+  {:added "1.3"}
+  [^clojure.lang.IPending x] (.isRealized x))

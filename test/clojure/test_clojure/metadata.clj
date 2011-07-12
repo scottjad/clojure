@@ -10,7 +10,7 @@
 
 (ns clojure.test-clojure.metadata
   (:use clojure.test
-        [clojure.test-clojure.helpers :only (eval-in-temp-ns)]))
+        [clojure.test-helper :only (eval-in-temp-ns)]))
 
 (def public-namespaces
   '[clojure.core
@@ -26,7 +26,8 @@
     clojure.java.browse
     clojure.java.javadoc
     clojure.java.shell
-    clojure.string])
+    clojure.string
+    clojure.data])
 
 (doseq [ns public-namespaces]
   (require ns))

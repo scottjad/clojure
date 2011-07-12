@@ -135,8 +135,7 @@
   "Do not use this directly - use defrecord"
   {:added "1.2"}
   [tagname name fields interfaces methods]
-  (let [tag (keyword (str *ns*) (str tagname))
-        classname (with-meta (symbol (str *ns* "." name)) (meta name))
+  (let [classname (with-meta (symbol (str (namespace-munge *ns*) "." name)) (meta name))
         interfaces (vec interfaces)
         interface-set (set (map resolve interfaces))
         methodname-set (set (map first methods))
@@ -148,7 +147,10 @@
       (throw (IllegalArgumentException. ":volatile-mutable or :unsynchronized-mutable not supported for record fields")))
     (let [gs (gensym)]
     (letfn 
-     [(eqhash [[i m]] 
+     [(irecord [[i m]]
+        [(conj i 'clojure.lang.IRecord)
+         m])
+      (eqhash [[i m]] 
         [i
          (conj m 
                `(hashCode [this#] (clojure.lang.APersistentMap/mapHash this#))
@@ -189,7 +191,7 @@
                          (or (identical? this# ~gs)
                              (when (identical? (class this#) (class ~gs))
                                (let [~gs ~(with-meta gs {:tag tagname})]
-                                 (and  ~@(map (fn [fld] `(= ~fld (. ~gs ~fld))) base-fields)
+                                 (and  ~@(map (fn [fld] `(= ~fld (. ~gs ~(keyword fld)))) base-fields)
                                        (= ~'__extmap (. ~gs ~'__extmap))))))))
                    `(containsKey [this# k#] (not (identical? this# (.valAt this# k# this#))))
                    `(entryAt [this# k#] (let [v# (.valAt this# k# this#)]
@@ -222,10 +224,35 @@
                        `(values [this#] (vals this#))
                        `(entrySet [this#] (set this#)))])
       ]
-     (let [[i m] (-> [interfaces methods] eqhash iobj ilookup imap ijavamap)]
+     (let [[i m] (-> [interfaces methods] irecord eqhash iobj ilookup imap ijavamap)]
        `(deftype* ~tagname ~classname ~(conj hinted-fields '__meta '__extmap) 
           :implements ~(vec i) 
           ~@m))))))
+
+(defn- build-positional-factory
+  "Used to build a positional factory for a given type/record.  Because of the
+  limitation of 20 arguments to Clojure functions, this factory needs to be
+  constructed to deal with more arguments.  It does this by building a straight
+  forward type/record ctor call in the <=20 case, and a call to the same
+  ctor pulling the extra args out of the & overage parameter.  Finally, the
+  arity is constrained to the number of expected fields and an ArityException
+  will be thrown at runtime if the actual arg count does not match."
+  [nom classname fields]
+  (let [fn-name (symbol (str '-> nom))
+        [field-args over] (split-at 20 fields)
+        field-count (count fields)
+        arg-count (count field-args)
+        over-count (count over)]
+    `(defn ~fn-name
+       [~@field-args ~@(if (seq over) '[& overage] [])]
+       ~(if (seq over)
+          `(if (= (count ~'overage) ~over-count)
+             (new ~classname
+                  ~@field-args
+                  ~@(for [i (range 0 (count over))]
+                      (list `nth 'overage i)))
+             (throw (clojure.lang.ArityException. (+ ~arg-count (count ~'overage)) (name '~fn-name))))
+          `(new ~classname ~@field-args)))))
 
 (defmacro defrecord
   "Alpha - subject to change
@@ -292,31 +319,23 @@
   [name [& fields] & opts+specs]
   (let [gname name
         [interfaces methods opts] (parse-opts+specs opts+specs)
-        classname (symbol (str *ns* "." gname))
-        tag (keyword (str *ns*) (str name))
+        ns-part (namespace-munge *ns*)
+        classname (symbol (str ns-part "." gname))
         hinted-fields fields
         fields (vec (map #(with-meta % nil) fields))]
     `(let []
        ~(emit-defrecord name gname (vec hinted-fields) (vec interfaces) methods)
-       (defmethod print-method ~classname [o# w#]
-           ((var print-defrecord) o# w#))
        (import ~classname)
-       #_(defn ~name
-         ([~@fields] (new ~classname ~@fields nil nil))
-         ([~@fields meta# extmap#] (new ~classname ~@fields meta# extmap#))))))
-
-(defn- print-defrecord [o ^Writer w]
-  (print-meta o w)
-  (.write w "#:")
-  (.write w (.getName (class o)))
-  (print-map
-    o
-    pr-on w))
+       ~(build-positional-factory gname classname fields)
+       (defn ~(symbol (str 'map-> gname))
+         ([m#] (~(symbol (str classname "/create")) m#)))
+       ~classname)))
 
 (defn- emit-deftype* 
   "Do not use this directly - use deftype"
   [tagname name fields interfaces methods]
-  (let [classname (with-meta (symbol (str *ns* "." name)) (meta name))]
+  (let [classname (with-meta (symbol (str (namespace-munge *ns*) "." name)) (meta name))
+        interfaces (conj interfaces 'clojure.lang.IType)]
     `(deftype* ~tagname ~classname ~fields 
        :implements ~interfaces 
        ~@methods)))
@@ -384,31 +403,35 @@
   [name [& fields] & opts+specs]
   (let [gname name
         [interfaces methods opts] (parse-opts+specs opts+specs)
-        classname (symbol (str *ns* "." gname))
-        tag (keyword (str *ns*) (str name))
+        ns-part (namespace-munge *ns*)
+        classname (symbol (str ns-part "." gname))
         hinted-fields fields
-        fields (vec (map #(with-meta % nil) fields))]
+        fields (vec (map #(with-meta % nil) fields))
+        [field-args over] (split-at 20 fields)]
     `(let []
        ~(emit-deftype* name gname (vec hinted-fields) (vec interfaces) methods)
-       (import ~classname))))
-
-
-
+       (import ~classname)
+       ~(build-positional-factory gname classname fields)
+       ~classname)))
 
 ;;;;;;;;;;;;;;;;;;;;;;; protocols ;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn- expand-method-impl-cache [^clojure.lang.MethodImplCache cache c f]
-  (let [cs (into1 {} (remove (fn [[c e]] (nil? e)) (map vec (partition 2 (.table cache)))))
-        cs (assoc cs c (clojure.lang.MethodImplCache$Entry. c f))
-        [shift mask] (min-hash (keys cs))
-        table (make-array Object (* 2 (inc mask)))
-        table (reduce1 (fn [^objects t [c e]]
-                        (let [i (* 2 (int (shift-mask shift mask (hash c))))]
-                          (aset t i c)
-                          (aset t (inc i) e)
-                          t))
-                      table cs)]
-    (clojure.lang.MethodImplCache. (.protocol cache) (.methodk cache) shift mask table)))
+  (if (.map cache)
+    (let [cs (assoc (.map cache) c (clojure.lang.MethodImplCache$Entry. c f))]
+      (clojure.lang.MethodImplCache. (.protocol cache) (.methodk cache) cs))
+    (let [cs (into1 {} (remove (fn [[c e]] (nil? e)) (map vec (partition 2 (.table cache)))))
+          cs (assoc cs c (clojure.lang.MethodImplCache$Entry. c f))]
+      (if-let [[shift mask] (maybe-min-hash (map hash (keys cs)))]
+        (let [table (make-array Object (* 2 (inc mask)))
+              table (reduce1 (fn [^objects t [c e]]
+                               (let [i (* 2 (int (shift-mask shift mask (hash c))))]
+                                 (aset t i c)
+                                 (aset t (inc i) e)
+                                 t))
+                             table cs)]
+          (clojure.lang.MethodImplCache. (.protocol cache) (.methodk cache) shift mask table))
+        (clojure.lang.MethodImplCache. (.protocol cache) (.methodk cache) cs)))))
 
 (defn- super-chain [^Class c]
   (when c
@@ -519,7 +542,7 @@
                      (str "function " (.sym v)))))))))
 
 (defn- emit-protocol [name opts+sigs]
-  (let [iname (symbol (str (munge *ns*) "." (munge name)))
+  (let [iname (symbol (str (munge (namespace-munge *ns*)) "." (munge name)))
         [opts sigs]
         (loop [opts {:on (list 'quote iname) :on-interface iname} sigs opts+sigs]
           (condp #(%1 %2) (first sigs) 

@@ -9,34 +9,7 @@
 ; Author: Stuart Halloway
 
 (ns clojure.test-clojure.rt
-  (:use clojure.test clojure.test-clojure.helpers))
-
-(defmacro with-err-print-writer
-  "Evaluate with err pointing to a temporary PrintWriter, and
-   return err contents as a string."
-  [& body]
-  `(let [s# (java.io.StringWriter.)
-         p# (java.io.PrintWriter. s#)]
-     (binding [*err* p#]
-       ~@body
-       (str s#))))
-
-(defmacro with-err-string-writer
-  "Evaluate with err pointing to a temporary StringWriter, and
-   return err contents as a string."
-  [& body]
-  `(let [s# (java.io.StringWriter.)]
-     (binding [*err* s#]
-       ~@body
-       (str s#))))
-
-(defmacro should-print-err-message
-  "Turn on all warning flags, and test that error message prints
-   correctly for all semi-reasonable bindings of *err*."
-  [msg-re form]
-  `(binding [*warn-on-reflection* true]
-    (is (re-matches ~msg-re (with-err-string-writer (eval-in-temp-ns ~form))))
-    (is (re-matches ~msg-re (with-err-print-writer (eval-in-temp-ns ~form))))))
+  (:use clojure.test clojure.test-helper))
 
 (defn bare-rt-print
   "Return string RT would print prior to print-initialize"
@@ -59,19 +32,19 @@
      (defn prefers [] (throw (RuntimeException. "rebound!")))))
   (testing "reflection cannot resolve field"
     (should-print-err-message
-     #"Reflection warning, NO_SOURCE_PATH:\d+ - reference to field blah can't be resolved\.\r?\n"
+     #"Reflection warning, .*:\d+ - reference to field blah can't be resolved\.\r?\n"
      (defn foo [x] (.blah x))))
   (testing "reflection cannot resolve instance method"
     (should-print-err-message
-     #"Reflection warning, NO_SOURCE_PATH:\d+ - call to zap can't be resolved\.\r?\n"
+     #"Reflection warning, .*:\d+ - call to zap can't be resolved\.\r?\n"
      (defn foo [x] (.zap x 1))))
   (testing "reflection cannot resolve static method"
     (should-print-err-message
-     #"Reflection warning, NO_SOURCE_PATH:\d+ - call to valueOf can't be resolved\.\r?\n"
+     #"Reflection warning, .*:\d+ - call to valueOf can't be resolved\.\r?\n"
      (defn foo [] (Integer/valueOf #"boom"))))
   (testing "reflection cannot resolve constructor"
     (should-print-err-message
-     #"Reflection warning, NO_SOURCE_PATH:\d+ - call to java.lang.String ctor can't be resolved\.\r?\n"
+     #"Reflection warning, .*:\d+ - call to java.lang.String ctor can't be resolved\.\r?\n"
      (defn foo [] (String. 1 2 3)))))
 
 (def example-var)

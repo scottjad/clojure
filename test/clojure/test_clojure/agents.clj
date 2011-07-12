@@ -9,7 +9,8 @@
 ;; Author: Shawn Hoover
 
 (ns clojure.test-clojure.agents
-  (:use clojure.test))
+  (:use clojure.test)
+  (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 (deftest handle-all-throwables-during-agent-actions
   ;; Bug fixed in r1198; previously hung Clojure or didn't report agent errors
@@ -54,6 +55,25 @@
     (is (= agt (first @err)))
     (is (true? (instance? ArithmeticException (second @err))))
     (is (thrown? RuntimeException (send agt inc)))))
+
+(deftest can-send-from-error-handler-before-popping-action-that-caused-error
+  (let [latch (CountDownLatch. 1)
+        target-agent (agent :before-error)
+        handler (fn [agt err]
+                  (send target-agent
+                        (fn [_] (.countDown latch))))
+        failing-agent (agent nil :error-handler handler)]
+    (send failing-agent (fn [_] (throw (RuntimeException.))))
+    (is (.await latch 10 TimeUnit/SECONDS))))
+
+(deftest can-send-to-self-from-error-handler-before-popping-action-that-caused-error
+  (let [latch (CountDownLatch. 1)
+        handler (fn [agt err]
+                  (send *agent*
+                        (fn [_] (.countDown latch))))
+        failing-agent (agent nil :error-handler handler)]
+    (send failing-agent (fn [_] (throw (RuntimeException.))))
+    (is (.await latch 10 TimeUnit/SECONDS))))
 
 (deftest restart-no-clear
   (let [p (promise)
@@ -107,6 +127,25 @@
     (is (true? (await-for 100 agt)))
     (is (= 10 @agt))
     (is (nil? (agent-error agt)))))
+
+(deftest earmuff-agent-bound
+  (let [a (agent 1)]
+    (send a (fn [_] *agent*))
+    (await a)
+    (is (= a @a))))
+
+(def ^:dynamic *bind-me* :root-binding)
+
+(deftest thread-conveyance-to-agents
+  (let [a (agent nil)]
+    (doto (Thread.
+           (fn []
+             (binding [*bind-me* :thread-binding]
+               (send a (constantly *bind-me*)))
+             (await a)))
+      (.start)
+      (.join))
+    (is (= @a :thread-binding))))
 
 ; http://clojure.org/agents
 

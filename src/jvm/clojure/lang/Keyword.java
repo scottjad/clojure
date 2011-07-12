@@ -14,6 +14,8 @@ package clojure.lang;
 
 import java.io.ObjectStreamException;
 import java.io.Serializable;
+import java.lang.ref.Reference;
+import java.lang.ref.WeakReference;
 import java.util.concurrent.ConcurrentHashMap;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.SoftReference;
@@ -21,15 +23,17 @@ import java.lang.ref.SoftReference;
 
 public final class Keyword implements IFn, Comparable, Named, Serializable {
 
-private static ConcurrentHashMap<Symbol, SoftReference<Keyword>> table = new ConcurrentHashMap();
+private static ConcurrentHashMap<Symbol, Reference<Keyword>> table = new ConcurrentHashMap();
 static final ReferenceQueue rq = new ReferenceQueue();
 public final Symbol sym;
 final int hash;
 
 public static Keyword intern(Symbol sym){
+	if(sym.meta() != null)
+		sym = (Symbol) sym.withMeta(null);
 	Util.clearCache(rq, table);
 	Keyword k = new Keyword(sym);
-	SoftReference<Keyword> existingRef = table.putIfAbsent(sym, new SoftReference<Keyword>(k,rq));
+	Reference<Keyword> existingRef = table.putIfAbsent(sym, new WeakReference<Keyword>(k,rq));
 	if(existingRef == null)
 		return k;
 	Keyword existingk = existingRef.get();
@@ -53,6 +57,22 @@ private Keyword(Symbol sym){
 	hash = sym.hashCode() + 0x9e3779b9;
 }
 
+public static Keyword find(Symbol sym){
+    Reference<Keyword> ref = table.get(sym);
+    if (ref != null)
+        return ref.get();
+    else
+        return null;
+}
+
+public static Keyword find(String ns, String name){
+    return find(Symbol.intern(ns, name));
+}
+
+public static Keyword find(String nsname){
+    return find(Symbol.intern(nsname));
+}
+
 public final int hashCode(){
 	return hash;
 }
@@ -66,7 +86,7 @@ public Object throwArity(){
 	                                   + toString());
 }
 
-public Object call() throws Exception{
+public Object call() {
 	return throwArity();
 }
 
@@ -74,7 +94,7 @@ public void run(){
 	throw new UnsupportedOperationException();
 }
 
-public Object invoke() throws Exception{
+public Object invoke() {
 	return throwArity();
 }
 
@@ -100,112 +120,112 @@ private Object readResolve() throws ObjectStreamException{
  *
  * @param obj - must be IPersistentMap
  * @return the value at the key or nil if not found
- * @throws Exception
+ * @
  */
-final public Object invoke(Object obj) throws Exception{
+final public Object invoke(Object obj) {
 	if(obj instanceof ILookup)
 		return ((ILookup)obj).valAt(this);
 	return RT.get(obj, this);
 }
 
-final public Object invoke(Object obj, Object notFound) throws Exception{
+final public Object invoke(Object obj, Object notFound) {
 	if(obj instanceof ILookup)
 		return ((ILookup)obj).valAt(this,notFound);
 	return RT.get(obj, this, notFound);
 }
 
-public Object invoke(Object arg1, Object arg2, Object arg3) throws Exception{
+public Object invoke(Object arg1, Object arg2, Object arg3) {
 	return throwArity();
 }
 
-public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4) throws Exception{
+public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4) {
 	return throwArity();
 }
 
-public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4, Object arg5) throws Exception{
+public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4, Object arg5) {
 	return throwArity();
 }
 
-public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4, Object arg5, Object arg6) throws Exception{
+public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4, Object arg5, Object arg6) {
 	return throwArity();
 }
 
 public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4, Object arg5, Object arg6, Object arg7)
-		throws Exception{
+		{
 	return throwArity();
 }
 
 public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4, Object arg5, Object arg6, Object arg7,
-                     Object arg8) throws Exception{
+                     Object arg8) {
 	return throwArity();
 }
 
 public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4, Object arg5, Object arg6, Object arg7,
-                     Object arg8, Object arg9) throws Exception{
+                     Object arg8, Object arg9) {
 	return throwArity();
 }
 
 public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4, Object arg5, Object arg6, Object arg7,
-                     Object arg8, Object arg9, Object arg10) throws Exception{
+                     Object arg8, Object arg9, Object arg10) {
 	return throwArity();
 }
 
 public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4, Object arg5, Object arg6, Object arg7,
-                     Object arg8, Object arg9, Object arg10, Object arg11) throws Exception{
+                     Object arg8, Object arg9, Object arg10, Object arg11) {
 	return throwArity();
 }
 
 public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4, Object arg5, Object arg6, Object arg7,
-                     Object arg8, Object arg9, Object arg10, Object arg11, Object arg12) throws Exception{
+                     Object arg8, Object arg9, Object arg10, Object arg11, Object arg12) {
 	return throwArity();
 }
 
 public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4, Object arg5, Object arg6, Object arg7,
                      Object arg8, Object arg9, Object arg10, Object arg11, Object arg12, Object arg13)
-		throws Exception{
+		{
 	return throwArity();
 }
 
 public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4, Object arg5, Object arg6, Object arg7,
                      Object arg8, Object arg9, Object arg10, Object arg11, Object arg12, Object arg13, Object arg14)
-		throws Exception{
+		{
 	return throwArity();
 }
 
 public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4, Object arg5, Object arg6, Object arg7,
                      Object arg8, Object arg9, Object arg10, Object arg11, Object arg12, Object arg13, Object arg14,
-                     Object arg15) throws Exception{
+                     Object arg15) {
 	return throwArity();
 }
 
 public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4, Object arg5, Object arg6, Object arg7,
                      Object arg8, Object arg9, Object arg10, Object arg11, Object arg12, Object arg13, Object arg14,
-                     Object arg15, Object arg16) throws Exception{
+                     Object arg15, Object arg16) {
 	return throwArity();
 }
 
 public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4, Object arg5, Object arg6, Object arg7,
                      Object arg8, Object arg9, Object arg10, Object arg11, Object arg12, Object arg13, Object arg14,
-                     Object arg15, Object arg16, Object arg17) throws Exception{
+                     Object arg15, Object arg16, Object arg17) {
 	return throwArity();
 }
 
 public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4, Object arg5, Object arg6, Object arg7,
                      Object arg8, Object arg9, Object arg10, Object arg11, Object arg12, Object arg13, Object arg14,
-                     Object arg15, Object arg16, Object arg17, Object arg18) throws Exception{
+                     Object arg15, Object arg16, Object arg17, Object arg18) {
 	return throwArity();
 }
 
 public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4, Object arg5, Object arg6, Object arg7,
                      Object arg8, Object arg9, Object arg10, Object arg11, Object arg12, Object arg13, Object arg14,
-                     Object arg15, Object arg16, Object arg17, Object arg18, Object arg19) throws Exception{
+                     Object arg15, Object arg16, Object arg17, Object arg18, Object arg19) {
 	return throwArity();
 }
 
 public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4, Object arg5, Object arg6, Object arg7,
                      Object arg8, Object arg9, Object arg10, Object arg11, Object arg12, Object arg13, Object arg14,
                      Object arg15, Object arg16, Object arg17, Object arg18, Object arg19, Object arg20)
-		throws Exception{
+		{
 	return throwArity();
 }
 
@@ -213,12 +233,12 @@ public Object invoke(Object arg1, Object arg2, Object arg3, Object arg4, Object 
                      Object arg8, Object arg9, Object arg10, Object arg11, Object arg12, Object arg13, Object arg14,
                      Object arg15, Object arg16, Object arg17, Object arg18, Object arg19, Object arg20,
                      Object... args)
-		throws Exception{
+		{
 	return throwArity();
 }
 
 
-public Object applyTo(ISeq arglist) throws Exception{
+public Object applyTo(ISeq arglist) {
 	return AFn.applyToHelper(this, arglist);
 }
 

@@ -12,7 +12,7 @@
 
 (import '(java.io Writer))
 
-(def
+(def ^:dynamic
  ^{:doc "*print-length* controls how many items of each collection the
   printer will print. If it is bound to logical false, there is no
   limit. Otherwise, it must be bound to an integer indicating the maximum
@@ -23,7 +23,7 @@
    :added "1.0"}
  *print-length* nil)
 
-(def
+(def ^:dynamic
  ^{:doc "*print-level* controls how many levels deep the printer will
   print nested objects. If it is bound to logical false, there is no
   limit. Otherwise, it must be bound to an integer indicating the maximum
@@ -33,7 +33,9 @@
   *print-level*, the printer prints '#' to represent it. The root binding
   is nil indicating no limit."
    :added "1.0"}
-*print-level* nil)
+ *print-level* nil)
+
+(def ^:dynamic *verbose-defrecords* false)
 
 (defn- print-sequential [^String begin, print-one, ^String sep, ^String end, sequence, ^Writer w]
   (binding [*print-level* (and (not *print-dup*) *print-level* (dec *print-level*))]
@@ -191,7 +193,7 @@
 (defn- print-map [m print-one w]
   (print-sequential 
    "{"
-   (fn [e  ^Writer w] 
+   (fn [e  ^Writer w]
      (do (print-one (key e) w) (.append w \space) (print-one (val e) w)))
    ", "
    "}"
@@ -212,7 +214,44 @@
   (print-map m print-dup w)
   (.write w ")"))
 
+;; Records
+
+(defmethod print-method clojure.lang.IRecord [r, ^Writer w]
+  (print-meta r w)
+  (.write w "#")
+  (.write w (.getName (class r)))
+  (print-map r pr-on w))
+
+(defmethod print-dup clojure.lang.IRecord [r, ^Writer w]
+  (print-meta r w)
+  (.write w "#")
+  (.write w (.getName (class r)))
+  (if *verbose-defrecords*
+    (print-map r print-dup w)
+    (print-sequential "[" pr-on ", " "]" (vals r) w)))
+
+(prefer-method print-method clojure.lang.IRecord java.util.Map)
+(prefer-method print-method clojure.lang.IRecord clojure.lang.IPersistentMap)
+(prefer-method print-dup clojure.lang.IRecord clojure.lang.IPersistentMap)
 (prefer-method print-dup clojure.lang.IPersistentCollection java.util.Map)
+(prefer-method print-dup clojure.lang.IRecord clojure.lang.IPersistentCollection)
+(prefer-method print-dup clojure.lang.IRecord java.util.Map)
+
+;; Types
+
+(defn- print-deftype [o ^Writer w]
+  (.write w "#")
+  (.write w (.getName (class o)))
+  (let [basii (for [fld (map str (clojure.lang.Reflector/invokeStaticMethod (class o) "getBasis" (to-array [])))]
+                (clojure.lang.Reflector/getInstanceField o fld))]
+    (print-sequential "[" pr-on ", " "]" basii w)))
+
+(defmethod print-method clojure.lang.IType [o ^Writer w]
+  (print-deftype o w))
+
+(defmethod print-dup clojure.lang.IType [o ^Writer w]
+  (print-deftype o w))
+
 
 (defmethod print-method clojure.lang.IPersistentSet [s, ^Writer w]
   (print-meta s w)
@@ -238,7 +277,7 @@
   nil)
 
 (defmethod print-dup java.lang.Character [c w] (print-method c w))
-(defmethod print-dup java.lang.Integer [o w] (print-method o w))
+(defmethod print-dup java.lang.Long [o w] (print-method o w))
 (defmethod print-dup java.lang.Double [o w] (print-method o w))
 (defmethod print-dup clojure.lang.Ratio [o w] (print-method o w))
 (defmethod print-dup java.math.BigDecimal [o w] (print-method o w))
@@ -325,6 +364,8 @@
                                      (agent-error o))
                               " FAILED"
                               ""))
-                    pr-on, "", ">", (list (if (and (future? o) (not (future-done? o))) :pending @o)), w))
+                    pr-on, "", ">", (list (if (and (instance? clojure.lang.IPending o) (not (.isRealized o)))
+                                            :pending
+                                            @o)), w))
 
 (def ^{:private true} print-initialized true)

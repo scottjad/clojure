@@ -78,10 +78,10 @@
 ;; still have to declare the symbol before testing unbound symbols
 (declare does-not-exist)
 
-(deftest can-test-unbound-symbol
+#_(deftest can-test-unbound-symbol
   (is (= nil does-not-exist) "Should error"))
 
-(deftest can-test-unbound-function
+#_(deftest can-test-unbound-function
   (is (does-not-exist) "Should error"))
 
 
@@ -89,7 +89,7 @@
 ;; compares the event with the message, then calls the original
 ;; 'report' with modified arguments.
 
-(declare original-report)
+(declare ^:dynamic original-report)
 
 (defn custom-report [data]
   (let [event (:type data)

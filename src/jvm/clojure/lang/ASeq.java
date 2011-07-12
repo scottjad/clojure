@@ -13,7 +13,7 @@ package clojure.lang;
 import java.io.Serializable;
 import java.util.*;
 
-public abstract class ASeq extends Obj implements ISeq, List, Serializable {
+public abstract class ASeq extends Obj implements ISeq, Sequential, List, Serializable {
 transient int _hash = -1;
 
 public String toString(){
@@ -74,14 +74,14 @@ public int hashCode(){
 }
 
 
-//public Object reduce(IFn f) throws Exception{
+//public Object reduce(IFn f) {
 //	Object ret = first();
 //	for(ISeq s = rest(); s != null; s = s.rest())
 //		ret = f.invoke(ret, s.first());
 //	return ret;
 //}
 //
-//public Object reduce(IFn f, Object start) throws Exception{
+//public Object reduce(IFn f, Object start) {
 //	Object ret = f.invoke(start, first());
 //	for(ISeq s = rest(); s != null; s = s.rest())
 //		ret = f.invoke(ret, s.first());

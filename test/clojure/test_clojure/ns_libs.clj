@@ -26,6 +26,9 @@
 ; require use
 ; loaded-libs
 
+(deftest test-alias
+	(is (thrown-with-msg? Exception #"No namespace: epicfail found" (alias 'bogus 'epicfail))))
+	
 (deftest test-require
          (is (thrown? Exception (require :foo)))
          (is (thrown? Exception (require))))
@@ -73,6 +76,14 @@
                  #"Integer already refers to: class java.lang.Integer"
                  (defrecord Integer [])))))
 
+(deftest resolution
+  (let [s (gensym)]
+    (are [result expr] (= result expr)
+         #'clojure.core/first (ns-resolve 'clojure.core 'first)
+         nil (ns-resolve 'clojure.core s)
+         nil (ns-resolve 'clojure.core {'first :local-first} 'first)
+         nil (ns-resolve 'clojure.core {'first :local-first} s))))
+  
 (deftest refer-error-messages
   (let [temp-ns (gensym)]
     (binding [*ns* *ns*]

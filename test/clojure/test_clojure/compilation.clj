@@ -50,3 +50,41 @@
 (deftest test-compiler-resolution
   (testing "resolve nonexistent class create should return nil (assembla #262)"
     (is (nil? (resolve 'NonExistentClass.)))))
+
+(deftest test-no-recur-across-try
+  (testing "don't recur to function from inside try"
+    (is (thrown? Exception (eval '(fn [x] (try (recur 1)))))))
+  (testing "don't recur to loop from inside try"
+    (is (thrown? Exception (eval '(loop [x] (try (recur 1)))))))
+  (testing "don't get confused about what the recur is targeting"
+    (is (thrown? Exception (eval '(loop [x] (try (fn [x]) (recur 1)))))))
+  (testing "don't allow recur accross binding"
+    (is (thrown? Exception (eval '(fn [x] (binding [+ *] (recur 1)))))))
+  (testing "allow loop/recur inside try"
+    (is (try
+          (eval '(try (loop [x 3] (if (zero? x) x (recur (dec x))))))
+          (catch Exception _))))
+  (testing "allow fn/recur inside try"
+    (is (try
+          (eval '(try
+                   ((fn [x]
+                      (if (zero? x)
+                        x
+                        (recur (dec x))))
+                    3)))
+          (catch Exception _)))))
+
+;; disabled until build box can call java from mvn
+#_(deftest test-numeric-dispatch
+  (is (= "(int, int)" (TestDispatch/someMethod (int 1) (int 1))))
+  (is (= "(int, long)" (TestDispatch/someMethod (int 1) (long 1))))
+  (is (= "(long, long)" (TestDispatch/someMethod (long 1) (long 1)))))
+
+(deftest test-CLJ-671-regression
+  (testing "that the presence of hints does not cause the compiler to infinitely loop"
+    (letfn [(gcd [x y]
+              (loop [x (long x) y (long y)]
+                (if (== y 0)
+                  x
+                  (recur y ^Long(rem x y)))))]
+      (is (= 4 (gcd 8 100))))))

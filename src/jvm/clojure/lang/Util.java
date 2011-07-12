@@ -12,6 +12,7 @@
 
 package clojure.lang;
 
+import java.lang.ref.Reference;
 import java.math.BigInteger;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -31,6 +32,30 @@ static public boolean equiv(Object k1, Object k2){
 		return k1.equals(k2);
 		}
 	return false;
+}
+
+static public boolean equiv(long k1, long k2){
+	return k1 == k2;
+}
+
+static public boolean equiv(Object k1, long k2){
+	return equiv(k1, (Object)k2);
+}
+
+static public boolean equiv(long k1, Object k2){
+	return equiv((Object)k1, k2);
+}
+
+static public boolean equiv(double k1, double k2){
+	return k1 == k2;
+}
+
+static public boolean equiv(Object k1, double k2){
+	return equiv(k1, (Object)k2);
+}
+
+static public boolean equiv(double k1, Object k2){
+	return equiv((Object)k1, k2);
 }
 
 static public boolean pcequiv(Object k1, Object k2){
@@ -100,17 +125,32 @@ static public ISeq ret1(ISeq ret, Object nil){
 		return ret;
 }
 
-static public <K,V> void clearCache(ReferenceQueue rq, ConcurrentHashMap<K, SoftReference<V>> cache){
+static public <K,V> void clearCache(ReferenceQueue rq, ConcurrentHashMap<K, Reference<V>> cache){
 		//cleanup any dead entries
 	if(rq.poll() != null)
 		{
 		while(rq.poll() != null)
 			;
-		for(Map.Entry<K, SoftReference<V>> e : cache.entrySet())
+		for(Map.Entry<K, Reference<V>> e : cache.entrySet())
 			{
-			if(e.getValue().get() == null)
-				cache.remove(e.getKey(), e.getValue());
+            Reference<V> val = e.getValue();
+			if(val != null && val.get() == null)
+				cache.remove(e.getKey(), val);
 			}
 		}
 }
+
+static public RuntimeException runtimeException(String s){
+	return new RuntimeException(s);
+}
+static public RuntimeException runtimeException(String s, Throwable e){
+	return new RuntimeException(s, e);
+}
+
+static public RuntimeException runtimeException(Throwable e){
+	if(e instanceof RuntimeException)
+		return (RuntimeException)e;
+	return new RuntimeException(e);
+}
+
 }
