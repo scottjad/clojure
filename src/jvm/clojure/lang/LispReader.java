@@ -291,6 +291,11 @@ private static Object matchSymbol(String s){
 	Matcher m = symbolPat.matcher(s);
 	if(m.matches())
 		{
+        // foo: => "foo"
+        boolean isUnquotedString = s.endsWith(":");
+        if(isUnquotedString)
+            return s.substring(0,s.length()-1);
+
 		int gc = m.groupCount();
 		String ns = m.group(1);
 		String name = m.group(2);
