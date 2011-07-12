@@ -22,11 +22,15 @@
                      ks)
              fmts (map #(str "%-" % "s") widths)
              fmt-row (fn [row]
-                       (apply str (interpose " | "
-                                             (for [[col fmt] (map vector (map #(get row %) ks) fmts)]
-                                               (format fmt (str col))))))
+                       (str " " (apply str (interpose " | "
+                                              (for [[col fmt] (map vector (map #(get row %) ks) fmts)]
+                                                (format fmt (str col)))))
+                            " "))
              header (fmt-row (zipmap ks ks))
-             bar (apply str (repeat (count header) "="))]
+             println (fn [& args] (println (apply str `("|" ~@args "|"))))
+             bar (apply str (apply concat
+                                   (interpose ["+"] (map #(repeat (+ 2 %) "-")
+                                                         widths))))]
          (println bar)
          (println header)
          (println bar)
